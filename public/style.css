@@ -527,6 +527,29 @@ html, body {
 
 .cat-move:disabled { opacity: 0.2; cursor: default; }
 .cat-delete { color: var(--danger); }
+.cat-add-child {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 1rem;
+  padding: 4px;
+  min-width: 28px;
+  min-height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.cat-parent-select {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-dim);
+  font-size: 0.75rem;
+  padding: 2px 4px;
+  flex-shrink: 0;
+  max-width: 120px;
+}
 
 /* --- Daily Log --- */
 

@@ -35,6 +35,7 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS categories (
     id TEXT PRIMARY KEY,
     budgetId TEXT NOT NULL,
+    parentId TEXT,
     name TEXT NOT NULL,
     color TEXT NOT NULL DEFAULT '#888888',
     targetHours REAL NOT NULL DEFAULT 0,
@@ -110,6 +111,14 @@ for (const table of tables) {
   }
 }
 
+// Migrate: add parentId to categories if missing
+{
+  const cols = db.prepare('PRAGMA table_info(categories)').all();
+  if (!cols.find(c => c.name === 'parentId')) {
+    db.exec('ALTER TABLE categories ADD COLUMN parentId TEXT');
+  }
+}
+
 // --- Helper: upsert by id (updatedAt wins) ---
 
 function upsertRow(table, row, columns) {
@@ -163,7 +172,7 @@ app.delete('/api/budgets/:id', (req, res) => {
 
 // --- Categories ---
 
-const CATEGORY_COLS = ['id', 'budgetId', 'name', 'color', 'targetHours', 'sortOrder', 'deleted', 'createdAt', 'updatedAt'];
+const CATEGORY_COLS = ['id', 'budgetId', 'parentId', 'name', 'color', 'targetHours', 'sortOrder', 'deleted', 'createdAt', 'updatedAt'];
 
 app.get('/api/budgets/:id/categories', (req, res) => {
   res.json(db.prepare('SELECT * FROM categories WHERE budgetId = ? AND deleted = 0 ORDER BY sortOrder').all(req.params.id));

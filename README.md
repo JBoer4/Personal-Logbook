@@ -1,4 +1,4 @@
-# Benchmark
+# Personal Logbook
 
 A personal tracking app for keeping yourself accountable to your own goals. Set targets by category, log what you actually do, and see how you're stacking up over time.
 
