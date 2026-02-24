@@ -100,6 +100,24 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_transactions_budget ON transactions(budgetId);
   CREATE INDEX IF NOT EXISTS idx_transactions_date ON transactions(date);
   CREATE INDEX IF NOT EXISTS idx_transactions_category ON transactions(categoryId);
+
+  CREATE TABLE IF NOT EXISTS events (
+    id TEXT PRIMARY KEY,
+    budgetId TEXT NOT NULL,
+    date TEXT NOT NULL,
+    startAt TEXT,
+    endAt TEXT,
+    hours REAL,
+    description TEXT,
+    categories TEXT NOT NULL DEFAULT '[]',
+    deleted INTEGER NOT NULL DEFAULT 0,
+    createdAt INTEGER NOT NULL,
+    updatedAt INTEGER NOT NULL,
+    FOREIGN KEY (budgetId) REFERENCES budgets(id) ON DELETE CASCADE
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_events_budget ON events(budgetId);
+  CREATE INDEX IF NOT EXISTS idx_events_date ON events(date);
 `);
 
 // Migrate: add deleted column to existing tables if missing
@@ -116,6 +134,22 @@ for (const table of tables) {
   const cols = db.prepare('PRAGMA table_info(categories)').all();
   if (!cols.find(c => c.name === 'parentId')) {
     db.exec('ALTER TABLE categories ADD COLUMN parentId TEXT');
+  }
+}
+
+// --- Event category serialization ---
+// categories is stored as JSON string in SQLite, but sent/received as an array over HTTP
+
+function serializeEvent(row) {
+  return { ...row, categories: typeof row.categories === 'string' ? row.categories : JSON.stringify(row.categories || []) };
+}
+
+function deserializeEvent(row) {
+  if (!row) return row;
+  try {
+    return { ...row, categories: typeof row.categories === 'string' ? JSON.parse(row.categories) : (row.categories || []) };
+  } catch {
+    return { ...row, categories: [] };
   }
 }
 
@@ -165,6 +199,7 @@ app.delete('/api/budgets/:id', (req, res) => {
   db.prepare('UPDATE budgets SET deleted = 1, updatedAt = ? WHERE id = ?').run(now, req.params.id);
   db.prepare('UPDATE categories SET deleted = 1, updatedAt = ? WHERE budgetId = ?').run(now, req.params.id);
   db.prepare('UPDATE entries SET deleted = 1, updatedAt = ? WHERE budgetId = ?').run(now, req.params.id);
+  db.prepare('UPDATE events SET deleted = 1, updatedAt = ? WHERE budgetId = ?').run(now, req.params.id);
   db.prepare('UPDATE period_overrides SET deleted = 1, updatedAt = ? WHERE budgetId = ?').run(now, req.params.id);
   db.prepare('UPDATE transactions SET deleted = 1, updatedAt = ? WHERE budgetId = ?').run(now, req.params.id);
   res.json({ ok: true });
@@ -225,6 +260,38 @@ app.put('/api/entries/:id', (req, res) => {
 app.delete('/api/entries/:id', (req, res) => {
   const now = Date.now();
   db.prepare('UPDATE entries SET deleted = 1, updatedAt = ? WHERE id = ?').run(now, req.params.id);
+  res.json({ ok: true });
+});
+
+// --- Events ---
+
+const EVENT_COLS = ['id', 'budgetId', 'date', 'startAt', 'endAt', 'hours', 'description', 'categories', 'deleted', 'createdAt', 'updatedAt'];
+
+app.get('/api/budgets/:id/events', (req, res) => {
+  const { from, to } = req.query;
+  let sql = 'SELECT * FROM events WHERE budgetId = ? AND deleted = 0';
+  const params = [req.params.id];
+  if (from) { sql += ' AND date >= ?'; params.push(from); }
+  if (to) { sql += ' AND date <= ?'; params.push(to); }
+  sql += ' ORDER BY date, createdAt';
+  res.json(db.prepare(sql).all(...params).map(deserializeEvent));
+});
+
+app.post('/api/budgets/:id/events', (req, res) => {
+  const row = serializeEvent({ deleted: 0, ...req.body, budgetId: req.params.id });
+  upsertRow('events', row, EVENT_COLS);
+  res.json(deserializeEvent(db.prepare('SELECT * FROM events WHERE id = ?').get(row.id)));
+});
+
+app.put('/api/events/:id', (req, res) => {
+  const row = serializeEvent({ deleted: 0, ...req.body, id: req.params.id });
+  upsertRow('events', row, EVENT_COLS);
+  res.json(deserializeEvent(db.prepare('SELECT * FROM events WHERE id = ?').get(req.params.id)));
+});
+
+app.delete('/api/events/:id', (req, res) => {
+  const now = Date.now();
+  db.prepare('UPDATE events SET deleted = 1, updatedAt = ? WHERE id = ?').run(now, req.params.id);
   res.json({ ok: true });
 });
 
@@ -327,7 +394,7 @@ const OVERRIDE_COLS = ['id', 'budgetId', 'categoryId', 'periodStart', 'targetHou
 // This is how deletions propagate to other devices.
 
 app.post('/api/sync', (req, res) => {
-  const { lastSyncAt = 0, budgets: cBudgets = [], categories: cCategories = [], entries: cEntries = [], periodOverrides: cOverrides = [], transactions: cTransactions = [] } = req.body;
+  const { lastSyncAt = 0, budgets: cBudgets = [], categories: cCategories = [], entries: cEntries = [], events: cEvents = [], periodOverrides: cOverrides = [], transactions: cTransactions = [] } = req.body;
   const now = Date.now();
 
   const syncTransaction = db.transaction(() => {
@@ -335,6 +402,7 @@ app.post('/api/sync', (req, res) => {
     for (const r of cBudgets) upsertRow('budgets', { deleted: 0, ...r }, BUDGET_COLS);
     for (const r of cCategories) upsertRow('categories', { deleted: 0, ...r }, CATEGORY_COLS);
     for (const r of cEntries) upsertRow('entries', { deleted: 0, ...r }, ENTRY_COLS);
+    for (const r of cEvents) upsertRow('events', serializeEvent({ deleted: 0, ...r }), EVENT_COLS);
     for (const r of cOverrides) upsertRow('period_overrides', { deleted: 0, ...r }, OVERRIDE_COLS);
     for (const r of cTransactions) upsertRow('transactions', { deleted: 0, ...r }, TRANSACTION_COLS);
 
@@ -342,10 +410,11 @@ app.post('/api/sync', (req, res) => {
     const sBudgets = db.prepare('SELECT * FROM budgets WHERE updatedAt > ?').all(lastSyncAt);
     const sCategories = db.prepare('SELECT * FROM categories WHERE updatedAt > ?').all(lastSyncAt);
     const sEntries = db.prepare('SELECT * FROM entries WHERE updatedAt > ?').all(lastSyncAt);
+    const sEvents = db.prepare('SELECT * FROM events WHERE updatedAt > ?').all(lastSyncAt).map(deserializeEvent);
     const sOverrides = db.prepare('SELECT * FROM period_overrides WHERE updatedAt > ?').all(lastSyncAt);
     const sTransactions = db.prepare('SELECT * FROM transactions WHERE updatedAt > ?').all(lastSyncAt);
 
-    return { budgets: sBudgets, categories: sCategories, entries: sEntries, periodOverrides: sOverrides, transactions: sTransactions, syncedAt: now };
+    return { budgets: sBudgets, categories: sCategories, entries: sEntries, events: sEvents, periodOverrides: sOverrides, transactions: sTransactions, syncedAt: now };
   });
 
   res.json(syncTransaction());

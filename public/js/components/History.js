@@ -2,7 +2,7 @@ import { useState, useEffect } from 'preact/hooks';
 import { html } from 'htm/preact';
 import { db } from '../db.js';
 import { navigate } from '../router.js';
-import { getWeekStart, toDateStr, formatRange } from '../utils.js';
+import { getWeekStart, toDateStr, formatRange, calcHoursFromDatetimes } from '../utils.js';
 
 export function History({ budgetId }) {
   const [categories, setCategories] = useState([]);
@@ -14,8 +14,8 @@ export function History({ budgetId }) {
     cats.sort((a, b) => a.sortOrder - b.sortOrder);
     setCategories(cats);
 
-    const allEntries = await db.getEntries(budgetId);
-    setEntries(allEntries);
+    const allEvents = await db.getEvents(budgetId);
+    setEntries(allEvents);
     setLoading(false);
   }
 
@@ -58,20 +58,26 @@ export function History({ budgetId }) {
               <div class="history-cats">
                 ${categories.map(cat => {
                   const actual = weekEntries
-                    .filter(e => e.categoryId === cat.id)
-                    .reduce((s, e) => s + (e.hours || 0), 0);
+                    .filter(e => (Array.isArray(e.categories) ? e.categories : []).includes(cat.id))
+                    .reduce((s, e) => {
+                      const h = e.startAt && e.endAt ? calcHoursFromDatetimes(e.startAt, e.endAt) || 0 : e.hours || 0;
+                      return s + h;
+                    }, 0);
                   if (actual === 0) return null;
                   return html`
                     <div class="history-cat-row" key=${cat.id}>
                       <span class="history-dot" style=${{ background: cat.color }}></span>
                       <span class="history-cat-name">${cat.name}</span>
-                      <span class="history-cat-hours">${actual.toFixed(1)} / ${cat.targetHours}h</span>
+                      <span class="history-cat-hours">${actual.toFixed(1)} / ${cat.targetHours || 0}h</span>
                     </div>
                   `;
                 })}
               </div>
               <div class="history-total">
-                Total: ${weekEntries.reduce((s, e) => s + (e.hours || 0), 0).toFixed(1)}h
+                Total: ${weekEntries.reduce((s, e) => {
+                  const h = e.startAt && e.endAt ? calcHoursFromDatetimes(e.startAt, e.endAt) || 0 : e.hours || 0;
+                  return s + h;
+                }, 0).toFixed(1)}h
               </div>
             </button>
           `;

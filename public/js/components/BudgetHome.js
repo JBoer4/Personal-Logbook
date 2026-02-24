@@ -3,12 +3,12 @@ import { html } from 'htm/preact';
 import { db } from '../db.js';
 import { navigate } from '../router.js';
 import { syncAfterMutation } from '../sync.js';
-import { now, getWeekStart, getWeekDates, toDateStr, formatRange, dayName } from '../utils.js';
+import { now, getWeekStart, getWeekDates, toDateStr, formatRange, dayName, hoursForDate } from '../utils.js';
 
 export function BudgetHome({ budgetId }) {
   const [budget, setBudget] = useState(null);
   const [categories, setCategories] = useState([]);
-  const [entries, setEntries] = useState([]);
+  const [events, setEvents] = useState([]);
   const [weekOffset, setWeekOffset] = useState(0);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(false);
@@ -21,44 +21,55 @@ export function BudgetHome({ budgetId }) {
   const weekDateStrs = weekDates.map(toDateStr);
 
   async function load() {
-    const b = await db.getBudget(budgetId);
-    setBudget(b);
+    try {
+      const b = await db.getBudget(budgetId);
+      setBudget(b);
 
-    const cats = await db.getCategories(budgetId);
-    cats.sort((a, b) => a.sortOrder - b.sortOrder);
-    setCategories(cats);
+      const cats = await db.getCategories(budgetId);
+      cats.sort((a, b) => a.sortOrder - b.sortOrder);
+      setCategories(cats);
 
-    const allEntries = await db.getEntries(budgetId);
-    const weekEntries = allEntries.filter(e => weekDateStrs.includes(e.date));
-    setEntries(weekEntries);
-    setLoading(false);
+      const allEvents = await db.getEvents(budgetId);
+      setEvents(allEvents.filter(e => weekDateStrs.includes(e.date)));
+    } catch (e) {
+      console.error('BudgetHome load failed:', e);
+    } finally {
+      setLoading(false);
+    }
   }
 
   useEffect(() => { load(); }, [budgetId, weekOffset]);
 
   if (loading) return html`<div class="loading">Loading...</div>`;
 
-  // Build hours by (categoryId, date)
+  // Build hours by (categoryId, date) — full duration counts per category (intentional double-counting)
   const hoursByDayCat = {};
-  for (const e of entries) {
-    const key = `${e.categoryId}|${e.date}`;
-    hoursByDayCat[key] = (hoursByDayCat[key] || 0) + (e.hours || 0);
+  for (const event of events) {
+    const catIds = Array.isArray(event.categories) ? event.categories : [];
+    for (const dateStr of weekDateStrs) {
+      const h = hoursForDate(event, dateStr);
+      if (h > 0) {
+        for (const catId of catIds) {
+          const key = `${catId}|${dateStr}`;
+          hoursByDayCat[key] = (hoursByDayCat[key] || 0) + h;
+        }
+      }
+    }
   }
 
   // Per-category weekly totals
   const catTotals = {};
   for (const cat of categories) {
-    catTotals[cat.id] = entries
-      .filter(e => e.categoryId === cat.id)
-      .reduce((s, e) => s + (e.hours || 0), 0);
+    catTotals[cat.id] = weekDateStrs.reduce((s, d) => s + (hoursByDayCat[`${cat.id}|${d}`] || 0), 0);
   }
 
   const totalTarget = categories.reduce((s, c) => s + (c.targetHours || 0), 0);
-  const totalLogged = entries.reduce((s, e) => s + (e.hours || 0), 0);
+  // Total logged = actual elapsed hours (each event counted once, not per-category)
+  const totalLogged = events.reduce((s, e) => s + weekDateStrs.reduce((sum, d) => sum + hoursForDate(e, d), 0), 0);
 
-  // Max hours in a single day column (for scaling timeline)
-  const dayTotals = weekDateStrs.map(d =>
-    entries.filter(e => e.date === d).reduce((s, e) => s + (e.hours || 0), 0)
+  // Day totals for bar scaling: sum of actual event hours per day
+  const dayTotals = weekDateStrs.map(dateStr =>
+    events.reduce((s, e) => s + hoursForDate(e, dateStr), 0)
   );
   const maxDay = Math.max(24, ...dayTotals);
 
@@ -74,9 +85,11 @@ export function BudgetHome({ budgetId }) {
 
   async function deleteBudget() {
     const ts = now();
-    // Soft-delete locally: entries, categories, then budget
+    // Soft-delete locally: events, entries, categories, then budget
     const cats = await db.getCategories(budgetId);
     const ents = await db.getEntries(budgetId);
+    const evts = await db.getEvents(budgetId);
+    for (const e of evts) await db.deleteEvent(e.id, ts);
     for (const e of ents) await db.deleteEntry(e.id, ts);
     for (const c of cats) await db.deleteCategory(c.id, ts);
     await db.deleteBudget(budgetId, ts);
@@ -119,7 +132,6 @@ export function BudgetHome({ budgetId }) {
       <div class="timeline">
         ${weekDates.map((date, i) => {
           const dateStr = weekDateStrs[i];
-          const dayEntries = entries.filter(e => e.date === dateStr);
           return html`
             <div class="timeline-col" key=${dateStr}
               onClick=${() => navigate(`/budget/${budgetId}/log/${dateStr}`)}>

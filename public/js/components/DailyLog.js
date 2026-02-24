@@ -1,76 +1,81 @@
-import { useState, useEffect, useRef } from 'preact/hooks';
+import { useState, useEffect } from 'preact/hooks';
 import { html } from 'htm/preact';
 import { db } from '../db.js';
 import { syncAfterMutation } from '../sync.js';
 import { navigate } from '../router.js';
-import { uuid, now, today, toDateStr, parseDate, formatShort, dayName, calcHours } from '../utils.js';
+import {
+  uuid, now, today, toDateStr, parseDate, formatShort, dayName,
+  parseDuration, formatDuration, calcHoursFromDatetimes, hoursForDate,
+} from '../utils.js';
+
+function buildCategoryTree(cats) {
+  const byId = {};
+  const roots = [];
+  for (const c of cats) byId[c.id] = { ...c, children: [] };
+  for (const c of cats) {
+    if (c.parentId && byId[c.parentId]) {
+      byId[c.parentId].children.push(byId[c.id]);
+    } else {
+      roots.push(byId[c.id]);
+    }
+  }
+  const sort = (nodes) => {
+    nodes.sort((a, b) => a.sortOrder - b.sortOrder);
+    nodes.forEach(n => sort(n.children));
+  };
+  sort(roots);
+  return roots;
+}
+
+function flattenCategoryTree(nodes, depth = 0, result = []) {
+  nodes.forEach(node => {
+    result.push({ cat: node, depth });
+    flattenCategoryTree(node.children, depth + 1, result);
+  });
+  return result;
+}
+
+function sortEvents(events) {
+  const open = events.filter(e => e.startAt && !e.endAt);
+  const timed = [...events.filter(e => e.startAt && e.endAt)].sort((a, b) => a.startAt.localeCompare(b.startAt));
+  const manual = events.filter(e => !e.startAt);
+  return [...open, ...timed, ...manual];
+}
+
+// Compute end datetime accounting for midnight crossover
+function buildEndAt(date, startTime, endTime) {
+  if (!endTime) return null;
+  if (!startTime || endTime >= startTime) return `${date}T${endTime}`;
+  const nd = parseDate(date);
+  nd.setDate(nd.getDate() + 1);
+  return `${toDateStr(nd)}T${endTime}`;
+}
+
+const EMPTY_FORM = { id: null, categoryIds: [], description: '', startTime: '', endTime: '', durationStr: '' };
 
 export function DailyLog({ budgetId, date: dateProp }) {
   const currentDate = dateProp || today();
   const [categories, setCategories] = useState([]);
-  const [entries, setEntries] = useState([]);
+  const [flatCats, setFlatCats] = useState([]);
+  const [events, setEvents] = useState([]);
   const [loading, setLoading] = useState(true);
-  const saveTimer = useRef(null);
+  const [form, setForm] = useState(null);
 
   async function load() {
-    const cats = await db.getCategories(budgetId);
-    cats.sort((a, b) => a.sortOrder - b.sortOrder);
-    setCategories(cats);
-
-    const allEntries = await db.getEntries(budgetId);
-    setEntries(allEntries.filter(e => e.date === currentDate));
-    setLoading(false);
+    try {
+      const cats = await db.getCategories(budgetId);
+      setCategories(cats);
+      setFlatCats(flattenCategoryTree(buildCategoryTree(cats)));
+      const allEvents = await db.getEvents(budgetId);
+      setEvents(allEvents.filter(e => e.date === currentDate));
+    } catch (e) {
+      console.error('DailyLog load failed:', e);
+    } finally {
+      setLoading(false);
+    }
   }
 
   useEffect(() => { load(); }, [budgetId, currentDate]);
-
-  function scheduleSync() {
-    clearTimeout(saveTimer.current);
-    saveTimer.current = setTimeout(() => syncAfterMutation(), 500);
-  }
-
-  async function addEntry(categoryId) {
-    const ts = now();
-    const entry = {
-      id: uuid(),
-      budgetId,
-      categoryId,
-      date: currentDate,
-      hours: 0,
-      startTime: null,
-      endTime: null,
-      note: null,
-      createdAt: ts,
-      updatedAt: ts,
-    };
-    await db.putEntry(entry);
-    setEntries(prev => [...prev, entry]);
-    scheduleSync();
-  }
-
-  async function updateEntry(id, field, value) {
-    const entry = entries.find(e => e.id === id);
-    if (!entry) return;
-    const updated = { ...entry, [field]: value, updatedAt: now() };
-
-    // Auto-calc hours from times
-    if ((field === 'startTime' || field === 'endTime')) {
-      const st = field === 'startTime' ? value : updated.startTime;
-      const et = field === 'endTime' ? value : updated.endTime;
-      const h = calcHours(st, et);
-      if (h !== null) updated.hours = h;
-    }
-
-    await db.putEntry(updated);
-    setEntries(prev => prev.map(e => e.id === id ? updated : e));
-    scheduleSync();
-  }
-
-  async function removeEntry(id) {
-    await db.deleteEntry(id, now());
-    setEntries(prev => prev.filter(e => e.id !== id));
-    syncAfterMutation();
-  }
 
   function prevDay() {
     const d = parseDate(currentDate);
@@ -84,11 +89,121 @@ export function DailyLog({ budgetId, date: dateProp }) {
     navigate(`/budget/${budgetId}/log/${toDateStr(d)}`);
   }
 
+  function openNewForm() {
+    setForm({ ...EMPTY_FORM });
+  }
+
+  function openEditForm(event) {
+    setForm({
+      id: event.id,
+      categoryIds: Array.isArray(event.categories) ? [...event.categories] : [],
+      description: event.description || '',
+      startTime: event.startAt ? event.startAt.slice(11, 16) : '',
+      endTime: event.endAt ? event.endAt.slice(11, 16) : '',
+      durationStr: event.hours != null ? formatDuration(event.hours) : '',
+    });
+  }
+
+  function toggleCategory(catId) {
+    setForm(f => ({
+      ...f,
+      categoryIds: f.categoryIds.includes(catId)
+        ? f.categoryIds.filter(id => id !== catId)
+        : [...f.categoryIds, catId],
+    }));
+  }
+
+  function handleTimeChange(field, value) {
+    setForm(f => {
+      const updated = { ...f, [field]: value };
+      const start = field === 'startTime' ? value : f.startTime;
+      const end = field === 'endTime' ? value : f.endTime;
+      if (start && end) {
+        const startAt = `${currentDate}T${start}`;
+        const endAt = buildEndAt(currentDate, start, end);
+        const h = calcHoursFromDatetimes(startAt, endAt);
+        if (h !== null) updated.durationStr = formatDuration(h);
+      }
+      return updated;
+    });
+  }
+
+  async function saveEvent() {
+    if (!form) return;
+    if (form.categoryIds.length === 0) {
+      alert('Select at least one category.');
+      return;
+    }
+
+    const startAt = form.startTime ? `${currentDate}T${form.startTime}` : null;
+    const endAt = startAt ? buildEndAt(currentDate, form.startTime, form.endTime) : null;
+
+    let hours = null;
+    if (startAt && endAt) {
+      hours = calcHoursFromDatetimes(startAt, endAt);
+    } else if (form.durationStr) {
+      hours = parseDuration(form.durationStr);
+    }
+
+    const ts = now();
+    const existing = form.id ? events.find(e => e.id === form.id) : null;
+    const event = {
+      id: form.id || uuid(),
+      budgetId,
+      date: currentDate,
+      startAt,
+      endAt,
+      hours,
+      description: form.description.trim() || null,
+      categories: form.categoryIds,
+      createdAt: existing ? existing.createdAt : ts,
+      updatedAt: ts,
+    };
+
+    await db.putEvent(event);
+    if (form.id) {
+      setEvents(prev => prev.map(e => e.id === form.id ? event : e));
+    } else {
+      setEvents(prev => [...prev, event]);
+    }
+    setForm(null);
+    syncAfterMutation();
+  }
+
+  async function stopEvent(id) {
+    const event = events.find(e => e.id === id);
+    if (!event) return;
+    const d = new Date();
+    const endTime = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+    const startTime = event.startAt ? event.startAt.slice(11, 16) : '';
+    const endAt = buildEndAt(currentDate, startTime, endTime);
+    const hours = calcHoursFromDatetimes(event.startAt, endAt);
+    const updated = { ...event, endAt, hours, updatedAt: now() };
+    await db.putEvent(updated);
+    setEvents(prev => prev.map(e => e.id === id ? updated : e));
+    syncAfterMutation();
+  }
+
+  async function removeEvent(id) {
+    await db.deleteEvent(id, now());
+    setEvents(prev => prev.filter(e => e.id !== id));
+    syncAfterMutation();
+  }
+
   if (loading) return html`<div class="loading">Loading...</div>`;
 
   const dateObj = parseDate(currentDate);
   const isToday = currentDate === today();
-  const dayTotal = entries.reduce((s, e) => s + (e.hours || 0), 0);
+  const sorted = sortEvents(events);
+  const dayTotal = events.reduce((s, e) => s + hoursForDate(e, currentDate), 0);
+
+  // Warning: computed hours from form times
+  let formComputedHours = null;
+  if (form && form.startTime && form.endTime) {
+    const startAt = `${currentDate}T${form.startTime}`;
+    const endAt = buildEndAt(currentDate, form.startTime, form.endTime);
+    formComputedHours = calcHoursFromDatetimes(startAt, endAt);
+  }
 
   return html`
     <div class="daily-log">
@@ -103,36 +218,99 @@ export function DailyLog({ budgetId, date: dateProp }) {
 
       <p class="day-total">${dayTotal.toFixed(1)}h logged</p>
 
-      <div class="log-categories">
-        ${categories.map(cat => {
-          const catEntries = entries.filter(e => e.categoryId === cat.id);
+      ${!form && html`
+        <button class="btn btn-add event-add-btn" onClick=${openNewForm}>+ New Event</button>
+      `}
+
+      ${form && html`
+        <div class="event-form">
+          <div class="event-form-cats">
+            ${flatCats.map(({ cat, depth }) => html`
+              <label class="event-cat-option" key=${cat.id} style="padding-left: ${depth * 0.75}rem">
+                <input type="checkbox"
+                  checked=${form.categoryIds.includes(cat.id)}
+                  onChange=${() => toggleCategory(cat.id)} />
+                <span class="event-cat-dot" style=${{ background: cat.color }}></span>
+                <span>${cat.name || 'Unnamed'}</span>
+              </label>
+            `)}
+          </div>
+
+          <div class="event-form-fields">
+            <input class="event-form-desc" type="text" placeholder="Description (optional)"
+              value=${form.description}
+              onInput=${(e) => setForm(f => ({ ...f, description: e.target.value }))} />
+
+            <div class="event-form-times">
+              <label>Start</label>
+              <input type="time" value=${form.startTime}
+                onInput=${(e) => handleTimeChange('startTime', e.target.value)} />
+              <label>End</label>
+              <input type="time" value=${form.endTime}
+                onInput=${(e) => handleTimeChange('endTime', e.target.value)} />
+            </div>
+
+            <div class="event-form-duration">
+              <input type="text" placeholder="Duration (e.g. 1h30m)"
+                value=${form.durationStr}
+                onInput=${(e) => setForm(f => ({ ...f, durationStr: e.target.value }))} />
+              ${formComputedHours !== null && formComputedHours > 12 && html`
+                <span class="duration-warn">${formComputedHours.toFixed(1)}h — looks right?</span>
+              `}
+            </div>
+
+            <div class="event-form-actions">
+              <button class="btn" onClick=${saveEvent}>Save</button>
+              <button class="btn btn-secondary" onClick=${() => setForm(null)}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      `}
+
+      <div class="event-list">
+        ${sorted.map(event => {
+          const catIds = Array.isArray(event.categories) ? event.categories : [];
+          const eventCats = catIds.map(id => categories.find(c => c.id === id)).filter(Boolean);
+          const isOpen = event.startAt && !event.endAt;
+
+          let timeLabel = '';
+          if (event.startAt && event.endAt) {
+            const sh = event.startAt.slice(11, 16);
+            const eh = event.endAt.slice(11, 16);
+            const h = hoursForDate(event, currentDate);
+            timeLabel = `${sh}–${eh} (${h.toFixed(1)}h)`;
+          } else if (event.startAt) {
+            timeLabel = `started ${event.startAt.slice(11, 16)}, ongoing`;
+          } else if (event.hours != null) {
+            timeLabel = `${event.hours.toFixed(1)}h`;
+          }
+
           return html`
-            <div class="log-cat" key=${cat.id}>
-              <div class="log-cat-header">
-                <span class="log-cat-dot" style=${{ background: cat.color }}></span>
-                <span class="log-cat-name">${cat.name}</span>
-                <span class="log-cat-total">${catEntries.reduce((s, e) => s + (e.hours || 0), 0).toFixed(1)}h</span>
-              </div>
-              <div class="log-entries">
-                ${catEntries.map(entry => html`
-                  <div class="log-entry" key=${entry.id}>
-                    <input class="entry-hours" type="number" value=${entry.hours}
-                      min="0" max="24" step="0.25" placeholder="hrs"
-                      onInput=${(e) => updateEntry(entry.id, 'hours', parseFloat(e.target.value) || 0)} />
-                    <input class="entry-time" type="time" value=${entry.startTime || ''}
-                      onInput=${(e) => updateEntry(entry.id, 'startTime', e.target.value || null)} />
-                    <span class="entry-dash">–</span>
-                    <input class="entry-time" type="time" value=${entry.endTime || ''}
-                      onInput=${(e) => updateEntry(entry.id, 'endTime', e.target.value || null)} />
-                    <button class="entry-delete" onClick=${() => removeEntry(entry.id)}>×</button>
-                  </div>
+            <div class="event-row ${isOpen ? 'event-open' : ''}" key=${event.id}
+              onClick=${() => !form && openEditForm(event)}>
+              <div class="event-cats">
+                ${eventCats.map(c => html`
+                  <span class="event-cat-dot" key=${c.id} style=${{ background: c.color }} title=${c.name}></span>
                 `)}
               </div>
-              <button class="btn-add-entry" onClick=${() => addEntry(cat.id)}>+ Add</button>
+              <div class="event-body">
+                ${event.description && html`<span class="event-desc">${event.description}</span>`}
+                <span class="event-time">${timeLabel}</span>
+              </div>
+              <div class="event-actions" onClick=${(e) => e.stopPropagation()}>
+                ${isOpen && html`
+                  <button class="event-stop" onClick=${() => stopEvent(event.id)}>Stop</button>
+                `}
+                <button class="event-delete" onClick=${() => removeEvent(event.id)}>×</button>
+              </div>
             </div>
           `;
         })}
       </div>
+
+      ${events.length === 0 && !form && html`
+        <p class="empty-state">No events logged yet.</p>
+      `}
     </div>
   `;
 }

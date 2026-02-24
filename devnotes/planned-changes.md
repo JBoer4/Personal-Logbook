@@ -5,7 +5,7 @@ Reference this doc at the start of each implementation session.
 
 ---
 
-## 1. Event-Based Time Logging (REDESIGN — do first, everything builds on it)
+## 1. Event-Based Time Logging ✅ IMPLEMENTED 2026-02-23
 
 ### Summary
 Replace the current category-first entry model with an event-first model. You add an event; category is a field on it.
@@ -47,7 +47,7 @@ Replace the current category-first entry model with an event-first model. You ad
 
 ---
 
-## 2. Hierarchical Categories (REDESIGN — do second, needed for reports)
+## 2. Hierarchical Categories ✅ IMPLEMENTED 2026-02-23
 
 ### Summary
 Replace flat category list with an n-level tree.
@@ -122,8 +122,8 @@ Seven columns (S M T W T F S), each column contains two elements side by side:
 
 ## Implementation Order (recommended)
 
-1. **Hierarchical categories** — data model foundation; event system and visualizer both depend on it
-2. **Event-based logging** — replaces entry model; depends on category tree being in place
+1. ✅ **Hierarchical categories** — data model foundation; event system and visualizer both depend on it
+2. ✅ **Event-based logging** — replaces entry model; depends on category tree being in place
 3. **Goal ranges** — `minHours`/`maxHours` on categories; categories need to be stable first
 4. **Copy from previous week** — period setup flow; depends on goal ranges being defined
 5. **Weekly visualizer** — timeline strip + stacked bar + category progress; depends on events having datetime data and goal ranges being defined

@@ -27,6 +27,7 @@ export async function sync() {
     const dirtyBudgets = await db.getDirtyBudgets();
     const dirtyCategories = await db.getDirtyCategories();
     const dirtyEntries = await db.getDirtyEntries();
+    const dirtyEvents = await db.getDirtyEvents();
     const dirtyOverrides = await db.getDirtyOverrides();
     const dirtyTransactions = await db.getDirtyTransactions();
 
@@ -35,6 +36,7 @@ export async function sync() {
       budgets: dirtyBudgets.map(db.cleanRecord),
       categories: dirtyCategories.map(db.cleanRecord),
       entries: dirtyEntries.map(db.cleanRecord),
+      events: dirtyEvents.map(db.cleanRecord),
       periodOverrides: dirtyOverrides.map(db.cleanRecord),
       transactions: dirtyTransactions.map(db.cleanRecord),
     };
@@ -47,6 +49,7 @@ export async function sync() {
     for (const r of result.budgets || []) await db.putBudgetClean(r);
     for (const r of result.categories || []) await db.putCategoryClean(r);
     for (const r of result.entries || []) await db.putEntryClean(r);
+    for (const r of result.events || []) await db.putEventClean(r);
     for (const r of result.periodOverrides || []) await db.putOverrideClean(r);
     for (const r of result.transactions || []) await db.putTransactionClean(r);
 
@@ -78,6 +81,7 @@ export function startSyncLoop() {
       ...(await db.getDirtyBudgets()),
       ...(await db.getDirtyCategories()),
       ...(await db.getDirtyEntries()),
+      ...(await db.getDirtyEvents()),
       ...(await db.getDirtyOverrides()),
       ...(await db.getDirtyTransactions()),
     ];

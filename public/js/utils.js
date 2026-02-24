@@ -73,6 +73,58 @@ export function calcHours(startTime, endTime) {
   return Math.round(diff / 60 * 100) / 100;
 }
 
+// Parse natural duration strings: "30m", "1h", "1h30m", "90m", "1.5" → hours
+export function parseDuration(str) {
+  if (!str) return null;
+  str = str.trim();
+  const hmMatch = str.match(/^(\d+(?:\.\d+)?)h(?:(\d+)m)?$/i);
+  if (hmMatch) return parseFloat(hmMatch[1]) + (hmMatch[2] ? parseInt(hmMatch[2]) / 60 : 0);
+  const mMatch = str.match(/^(\d+(?:\.\d+)?)m$/i);
+  if (mMatch) return parseFloat(mMatch[1]) / 60;
+  const numMatch = str.match(/^(\d+(?:\.\d+)?)$/);
+  if (numMatch) return parseFloat(numMatch[1]);
+  return null;
+}
+
+// Format hours number to human string: 1.5 → "1h30m"
+export function formatDuration(hours) {
+  if (!hours || hours <= 0) return '';
+  const h = Math.floor(hours);
+  const m = Math.round((hours - h) * 60);
+  if (h === 0) return `${m}m`;
+  if (m === 0) return `${h}h`;
+  return `${h}h${m}m`;
+}
+
+// Compute hours between two local datetime strings (YYYY-MM-DDTHH:MM)
+export function calcHoursFromDatetimes(startAt, endAt) {
+  if (!startAt || !endAt) return null;
+  const diff = new Date(endAt) - new Date(startAt);
+  if (diff < 0) return null;
+  return Math.round(diff / 3600000 * 100) / 100;
+}
+
+// Hours an event contributes to a specific date YYYY-MM-DD (handles midnight crossover)
+export function hoursForDate(event, date) {
+  const { startAt, endAt, hours: manualHours, date: eventDate } = event;
+  if (startAt && endAt) {
+    const start = new Date(startAt);
+    const end = new Date(endAt);
+    const dayStart = new Date(date + 'T00:00');
+    const dayEnd = new Date(date + 'T00:00');
+    dayEnd.setDate(dayEnd.getDate() + 1);
+    const effectiveStart = start < dayStart ? dayStart : start;
+    const effectiveEnd = end > dayEnd ? dayEnd : end;
+    if (effectiveStart >= effectiveEnd) return 0;
+    return Math.round((effectiveEnd - effectiveStart) / 3600000 * 100) / 100;
+  }
+  // Open event: not yet complete, no hours to attribute
+  if (startAt && !endAt) return 0;
+  // Manual hours: attributed entirely to event's date
+  if (eventDate === date) return manualHours || 0;
+  return 0;
+}
+
 export function today() {
   return toDateStr(new Date());
 }
