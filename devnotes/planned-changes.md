@@ -69,7 +69,7 @@ Replace flat category list with an n-level tree.
 
 ---
 
-## 3. Goal Ranges
+## 3. Goal Ranges ✅ IMPLEMENTED 2026-02-24
 
 ### Summary
 Replace single target number with optional min/max bounds per category.
@@ -124,7 +124,7 @@ Seven columns (S M T W T F S), each column contains two elements side by side:
 
 1. ✅ **Hierarchical categories** — data model foundation; event system and visualizer both depend on it
 2. ✅ **Event-based logging** — replaces entry model; depends on category tree being in place
-3. **Goal ranges** — `minHours`/`maxHours` on categories; categories need to be stable first
+3. ✅ **Goal ranges** — `minHours`/`maxHours` on categories; categories need to be stable first
 4. **Copy from previous week** — period setup flow; depends on goal ranges being defined
 5. **Weekly visualizer** — timeline strip + stacked bar + category progress; depends on events having datetime data and goal ranges being defined
 

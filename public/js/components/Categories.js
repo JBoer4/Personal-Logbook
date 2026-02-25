@@ -79,6 +79,8 @@ export function Categories({ budgetId }) {
       name: '',
       color: PALETTE[categories.length % PALETTE.length],
       targetHours: 0,
+      minHours: null,
+      maxHours: null,
       sortOrder: siblings.length,
       createdAt: ts,
       updatedAt: ts,
@@ -161,12 +163,20 @@ export function Categories({ budgetId }) {
                   </option>
                 `)}
               </select>
-              <div class="cat-hours-wrap">
-                <input class="cat-hours-input" type="number"
-                  value=${cat.targetHours || ''}
-                  placeholder="0h"
+              <div class="cat-goal-wrap">
+                <input class="cat-goal-input" type="number"
+                  value=${cat.minHours != null ? cat.minHours : ''}
+                  placeholder="–"
                   min="0" max="168" step="0.5"
-                  onInput=${(e) => updateCat(cat.id, 'targetHours', parseFloat(e.target.value) || 0)} />
+                  title="Minimum hours (hit at least this)"
+                  onInput=${(e) => updateCat(cat.id, 'minHours', e.target.value !== '' ? parseFloat(e.target.value) : null)} />
+                <span class="cat-goal-sep">–</span>
+                <input class="cat-goal-input" type="number"
+                  value=${cat.maxHours != null ? cat.maxHours : ''}
+                  placeholder="–"
+                  min="0" max="168" step="0.5"
+                  title="Maximum hours (don't exceed this)"
+                  onInput=${(e) => updateCat(cat.id, 'maxHours', e.target.value !== '' ? parseFloat(e.target.value) : null)} />
                 <span class="cat-hours-label">h</span>
               </div>
               <div class="cat-actions">

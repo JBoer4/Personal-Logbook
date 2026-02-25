@@ -63,10 +63,6 @@ export function BudgetHome({ budgetId }) {
     catTotals[cat.id] = weekDateStrs.reduce((s, d) => s + (hoursByDayCat[`${cat.id}|${d}`] || 0), 0);
   }
 
-  const totalTarget = categories.reduce((s, c) => s + (c.targetHours || 0), 0);
-  // Total logged = actual elapsed hours (each event counted once, not per-category)
-  const totalLogged = events.reduce((s, e) => s + weekDateStrs.reduce((sum, d) => sum + hoursForDate(e, d), 0), 0);
-
   // Day totals for bar scaling: sum of actual event hours per day
   const dayTotals = weekDateStrs.map(dateStr =>
     events.reduce((s, e) => s + hoursForDate(e, dateStr), 0)
@@ -153,45 +149,66 @@ export function BudgetHome({ budgetId }) {
         })}
       </div>
 
-      <!-- Budget vs Actual -->
+      <!-- Goal Progress -->
       <div class="budget-vs-actual">
-        <h3>Budget vs Actual</h3>
-        ${categories.map(cat => {
-          const actual = catTotals[cat.id] || 0;
-          const target = cat.targetHours || 0;
-          const pct = target > 0 ? Math.min((actual / target) * 100, 150) : 0;
-          const over = target > 0 && actual > target;
-          return html`
-            <div class="bva-row" key=${cat.id}>
-              <div class="bva-label">
-                <span class="bva-dot" style=${{ background: cat.color }}></span>
-                <span class="bva-name">${cat.name}</span>
-              </div>
-              <div class="bva-bar-wrap">
-                <div class="bva-bar ${over ? 'over' : ''}" style=${{
-                  width: `${Math.min(pct, 100)}%`,
-                  background: cat.color,
-                }}></div>
-                ${over && html`<div class="bva-bar-over" style=${{
-                  width: `${pct - 100}%`,
-                  background: cat.color,
-                  opacity: 0.4,
-                }}></div>`}
-              </div>
-              <div class="bva-nums">${actual.toFixed(1)} / ${target}h</div>
+        <h3>Goal Progress</h3>
+        ${(() => {
+          const goalCats = categories.filter(c => c.minHours != null || c.maxHours != null);
+          if (goalCats.length === 0) return html`
+            <div class="empty-state" style=${{ fontSize: '0.85rem', padding: '16px 0' }}>
+              No goals set — add a min or max to a category to track progress.
             </div>
           `;
-        })}
-        <div class="bva-row bva-total">
-          <div class="bva-label"><span class="bva-name">Total</span></div>
-          <div class="bva-bar-wrap">
-            <div class="bva-bar" style=${{
-              width: `${totalTarget > 0 ? Math.min((totalLogged / totalTarget) * 100, 100) : 0}%`,
-              background: '#64748b',
-            }}></div>
-          </div>
-          <div class="bva-nums">${totalLogged.toFixed(1)} / ${totalTarget}h</div>
-        </div>
+          return goalCats.map(cat => {
+            const actual = catTotals[cat.id] || 0;
+            const hasMin = cat.minHours != null;
+            const hasMax = cat.maxHours != null;
+            const ref = hasMax ? cat.maxHours : cat.minHours;
+            const pct = ref > 0 ? Math.min((actual / ref) * 100, 150) : (actual > 0 ? 150 : 0);
+            const overMax = hasMax && actual > cat.maxHours;
+
+            let onTrack;
+            if (hasMin && hasMax) {
+              onTrack = actual >= cat.minHours && actual <= cat.maxHours;
+            } else if (hasMin) {
+              onTrack = actual >= cat.minHours;
+            } else {
+              onTrack = actual <= cat.maxHours;
+            }
+
+            let goalText;
+            if (hasMin && hasMax) {
+              goalText = `${cat.minHours}–${cat.maxHours}h`;
+            } else if (hasMin) {
+              goalText = `${cat.minHours}h+`;
+            } else {
+              goalText = `${cat.maxHours}h`;
+            }
+
+            return html`
+              <div class="bva-row" key=${cat.id}>
+                <div class="bva-label">
+                  <span class="bva-dot" style=${{ background: cat.color }}></span>
+                  <span class="bva-name">${cat.name}</span>
+                </div>
+                <div class="bva-bar-wrap">
+                  <div class="bva-bar" style=${{
+                    width: `${Math.min(pct, 100)}%`,
+                    background: cat.color,
+                  }}></div>
+                  ${overMax && html`<div class="bva-bar-over" style=${{
+                    width: `${pct - 100}%`,
+                    background: cat.color,
+                    opacity: 0.4,
+                  }}></div>`}
+                </div>
+                <div class="bva-nums" style=${{ color: onTrack ? '#10b981' : 'var(--danger)' }}>
+                  ${actual.toFixed(1)} / ${goalText}
+                </div>
+              </div>
+            `;
+          });
+        })()}
       </div>
 
       <!-- Quick actions -->

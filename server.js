@@ -137,6 +137,17 @@ for (const table of tables) {
   }
 }
 
+// Migrate: add minHours, maxHours to categories if missing
+{
+  const cols = db.prepare('PRAGMA table_info(categories)').all();
+  if (!cols.find(c => c.name === 'minHours')) {
+    db.exec('ALTER TABLE categories ADD COLUMN minHours REAL');
+  }
+  if (!cols.find(c => c.name === 'maxHours')) {
+    db.exec('ALTER TABLE categories ADD COLUMN maxHours REAL');
+  }
+}
+
 // --- Event category serialization ---
 // categories is stored as JSON string in SQLite, but sent/received as an array over HTTP
 
@@ -207,7 +218,7 @@ app.delete('/api/budgets/:id', (req, res) => {
 
 // --- Categories ---
 
-const CATEGORY_COLS = ['id', 'budgetId', 'parentId', 'name', 'color', 'targetHours', 'sortOrder', 'deleted', 'createdAt', 'updatedAt'];
+const CATEGORY_COLS = ['id', 'budgetId', 'parentId', 'name', 'color', 'targetHours', 'minHours', 'maxHours', 'sortOrder', 'deleted', 'createdAt', 'updatedAt'];
 
 app.get('/api/budgets/:id/categories', (req, res) => {
   res.json(db.prepare('SELECT * FROM categories WHERE budgetId = ? AND deleted = 0 ORDER BY sortOrder').all(req.params.id));

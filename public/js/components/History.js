@@ -68,7 +68,7 @@ export function History({ budgetId }) {
                     <div class="history-cat-row" key=${cat.id}>
                       <span class="history-dot" style=${{ background: cat.color }}></span>
                       <span class="history-cat-name">${cat.name}</span>
-                      <span class="history-cat-hours">${actual.toFixed(1)} / ${cat.targetHours || 0}h</span>
+                      <span class="history-cat-hours">${actual.toFixed(1)}h</span>
                     </div>
                   `;
                 })}

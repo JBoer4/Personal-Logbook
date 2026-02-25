@@ -6,10 +6,10 @@ import { syncAfterMutation } from '../sync.js';
 import { uuid, now } from '../utils.js';
 
 const DEFAULT_TIME_CATEGORIES = [
-  { name: 'Sleep', color: '#6366f1', targetHours: 56 },
-  { name: 'Work', color: '#f59e0b', targetHours: 40 },
-  { name: 'Exercise', color: '#10b981', targetHours: 5 },
-  { name: 'Leisure', color: '#ec4899', targetHours: 10 },
+  { name: 'Sleep', color: '#6366f1', minHours: 49, maxHours: 63 },
+  { name: 'Work', color: '#f59e0b', minHours: 35, maxHours: 45 },
+  { name: 'Exercise', color: '#10b981', minHours: 5, maxHours: null },
+  { name: 'Leisure', color: '#ec4899', minHours: null, maxHours: 20 },
 ];
 
 const DEFAULT_MONEY_CATEGORIES = [
@@ -42,7 +42,9 @@ async function seedBudget() {
       budgetId: budget.id,
       name: cat.name,
       color: cat.color,
-      targetHours: cat.targetHours,
+      targetHours: 0,
+      minHours: cat.minHours ?? null,
+      maxHours: cat.maxHours ?? null,
       sortOrder: i,
       createdAt: ts,
       updatedAt: ts,

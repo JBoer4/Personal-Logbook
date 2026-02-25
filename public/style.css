@@ -505,6 +505,30 @@ html, body {
   font-size: 0.85rem;
 }
 
+.cat-goal-wrap {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  flex-shrink: 0;
+}
+
+.cat-goal-input {
+  width: 40px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  font-size: 0.85rem;
+  padding: 6px 3px;
+  text-align: right;
+}
+
+.cat-goal-sep {
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  flex-shrink: 0;
+}
+
 .cat-actions {
   display: flex;
   gap: 2px;
