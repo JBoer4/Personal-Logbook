@@ -281,7 +281,6 @@ html, body {
 .budget-vs-actual h3 {
   font-size: 0.9rem;
   color: var(--text-dim);
-  margin-bottom: 12px;
   text-transform: uppercase;
   letter-spacing: 0.5px;
 }
@@ -346,6 +345,122 @@ html, body {
   margin-top: 8px;
   padding-top: 8px;
   border-top: 1px solid var(--border);
+}
+
+.bva-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.bva-header h3 {
+  margin-bottom: 0;
+}
+
+.copy-from-btn {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-dim);
+  font-size: 0.8rem;
+  padding: 4px 10px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.copy-from-btn:active { color: var(--text); border-color: var(--accent); }
+
+.copy-picker {
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  margin-bottom: 12px;
+  overflow: hidden;
+}
+
+.copy-picker-week {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 10px 14px;
+  background: none;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.875rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.copy-picker-week:last-child { border-bottom: none; }
+.copy-picker-week:active { background: var(--bg-card); }
+
+.copy-picker-tag {
+  font-size: 0.7rem;
+  background: var(--accent);
+  color: white;
+  border-radius: 10px;
+  padding: 2px 7px;
+  flex-shrink: 0;
+}
+
+.copy-picker-empty {
+  padding: 12px 14px;
+  font-size: 0.85rem;
+  color: var(--text-dim);
+}
+
+.bva-edit {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  flex-shrink: 0;
+}
+
+.bva-edit-input {
+  width: 38px;
+  background: var(--bg-input);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  color: var(--text);
+  font-size: 0.8rem;
+  padding: 4px 2px;
+  text-align: right;
+}
+
+.bva-edit-sep {
+  color: var(--text-muted);
+  font-size: 0.75rem;
+}
+
+.bva-save-btn, .bva-cancel-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 0.9rem;
+  padding: 2px 4px;
+  min-width: 24px;
+  min-height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.bva-save-btn { color: #10b981; }
+.bva-cancel-btn { color: var(--danger); }
+
+.bva-override-dot {
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  background: var(--accent);
+  border-radius: 50%;
+  margin-left: 4px;
+  vertical-align: middle;
+  flex-shrink: 0;
 }
 
 /* --- Budget Title Row --- */
@@ -447,12 +562,31 @@ html, body {
 
 .cat-row {
   display: flex;
-  align-items: center;
-  gap: 8px;
+  flex-direction: column;
+  gap: 6px;
   background: var(--bg-card);
-  padding: 8px 12px;
+  padding: 10px 12px;
   border-radius: var(--radius-sm);
   border: 1px solid var(--border);
+}
+
+.cat-row-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.cat-row-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: 40px; /* align under name input (32px color + 8px gap) */
+}
+
+.cat-goal-label {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  flex-shrink: 0;
 }
 
 .cat-color-wrap {
@@ -568,11 +702,16 @@ html, body {
   background: var(--bg-input);
   border: 1px solid var(--border);
   border-radius: 4px;
-  color: var(--text-dim);
+  color: var(--text-muted);
   font-size: 0.75rem;
   padding: 2px 4px;
   flex-shrink: 0;
-  max-width: 120px;
+  max-width: 110px;
+  margin-left: auto;
+}
+
+.copy-from-wrap {
+  margin-top: 8px;
 }
 
 /* --- Daily Log --- */

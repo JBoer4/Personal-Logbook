@@ -146,44 +146,49 @@ export function Categories({ budgetId }) {
 
           return html`
             <div class="cat-row" key=${cat.id} style="padding-left: ${depth * 1.5}rem">
-              <div class="cat-color-wrap">
-                <input type="color" class="cat-color" value=${cat.color}
-                  onInput=${(e) => updateCat(cat.id, 'color', e.target.value)} />
+              <div class="cat-row-main">
+                <div class="cat-color-wrap">
+                  <input type="color" class="cat-color" value=${cat.color}
+                    onInput=${(e) => updateCat(cat.id, 'color', e.target.value)} />
+                </div>
+                <input class="cat-name-input" type="text" value=${cat.name}
+                  placeholder=${depth === 0 ? 'Group name' : 'Category name'}
+                  onInput=${(e) => updateCat(cat.id, 'name', e.target.value)} />
+                <div class="cat-actions">
+                  <button class="cat-move" title="Move up" onClick=${() => moveCat(cat.id, -1)} disabled=${siblingIndex === 0}>↑</button>
+                  <button class="cat-move" title="Move down" onClick=${() => moveCat(cat.id, 1)} disabled=${siblingIndex === siblingCount - 1}>↓</button>
+                  <button class="cat-add-child" title="Add child category" onClick=${() => addCategory(cat.id)}>+</button>
+                  <button class="cat-delete" onClick=${() => removeCat(cat.id)}>×</button>
+                </div>
               </div>
-              <input class="cat-name-input" type="text" value=${cat.name}
-                placeholder=${depth === 0 ? 'Group name' : 'Category name'}
-                onInput=${(e) => updateCat(cat.id, 'name', e.target.value)} />
-              <select class="cat-parent-select"
-                value=${cat.parentId ?? ''}
-                onChange=${(e) => reparentCat(cat.id, e.target.value || null)}>
-                <option value="">Top level</option>
-                ${validParents.map(({ cat: p, depth: d }) => html`
-                  <option value=${p.id}>
-                    ${'–'.repeat(d)} ${p.name || 'Unnamed'}
-                  </option>
-                `)}
-              </select>
-              <div class="cat-goal-wrap">
-                <input class="cat-goal-input" type="number"
-                  value=${cat.minHours != null ? cat.minHours : ''}
-                  placeholder="–"
-                  min="0" max="168" step="0.5"
-                  title="Minimum hours (hit at least this)"
-                  onInput=${(e) => updateCat(cat.id, 'minHours', e.target.value !== '' ? parseFloat(e.target.value) : null)} />
-                <span class="cat-goal-sep">–</span>
-                <input class="cat-goal-input" type="number"
-                  value=${cat.maxHours != null ? cat.maxHours : ''}
-                  placeholder="–"
-                  min="0" max="168" step="0.5"
-                  title="Maximum hours (don't exceed this)"
-                  onInput=${(e) => updateCat(cat.id, 'maxHours', e.target.value !== '' ? parseFloat(e.target.value) : null)} />
-                <span class="cat-hours-label">h</span>
-              </div>
-              <div class="cat-actions">
-                <button class="cat-move" title="Move up" onClick=${() => moveCat(cat.id, -1)} disabled=${siblingIndex === 0}>↑</button>
-                <button class="cat-move" title="Move down" onClick=${() => moveCat(cat.id, 1)} disabled=${siblingIndex === siblingCount - 1}>↓</button>
-                <button class="cat-add-child" title="Add child category" onClick=${() => addCategory(cat.id)}>+</button>
-                <button class="cat-delete" onClick=${() => removeCat(cat.id)}>×</button>
+              <div class="cat-row-meta">
+                <span class="cat-goal-label">Goal</span>
+                <div class="cat-goal-wrap">
+                  <input class="cat-goal-input" type="number"
+                    value=${cat.minHours != null ? cat.minHours : ''}
+                    placeholder="min"
+                    min="0" max="168" step="0.5"
+                    title="Minimum hours (hit at least this)"
+                    onInput=${(e) => updateCat(cat.id, 'minHours', e.target.value !== '' ? parseFloat(e.target.value) : null)} />
+                  <span class="cat-goal-sep">–</span>
+                  <input class="cat-goal-input" type="number"
+                    value=${cat.maxHours != null ? cat.maxHours : ''}
+                    placeholder="max"
+                    min="0" max="168" step="0.5"
+                    title="Maximum hours (don't exceed this)"
+                    onInput=${(e) => updateCat(cat.id, 'maxHours', e.target.value !== '' ? parseFloat(e.target.value) : null)} />
+                  <span class="cat-hours-label">h</span>
+                </div>
+                <select class="cat-parent-select"
+                  value=${cat.parentId ?? ''}
+                  onChange=${(e) => reparentCat(cat.id, e.target.value || null)}>
+                  <option value="">Top level</option>
+                  ${validParents.map(({ cat: p, depth: d }) => html`
+                    <option value=${p.id}>
+                      ${'–'.repeat(d)} ${p.name || 'Unnamed'}
+                    </option>
+                  `)}
+                </select>
               </div>
             </div>
           `;

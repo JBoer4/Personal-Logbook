@@ -125,12 +125,12 @@ Seven columns (S M T W T F S), each column contains two elements side by side:
 1. ✅ **Hierarchical categories** — data model foundation; event system and visualizer both depend on it
 2. ✅ **Event-based logging** — replaces entry model; depends on category tree being in place
 3. ✅ **Goal ranges** — `minHours`/`maxHours` on categories; categories need to be stable first
-4. **Copy from previous week** — period setup flow; depends on goal ranges being defined
+4. ✅ **Copy from previous week** — period setup flow; depends on goal ranges being defined
 5. **Weekly visualizer** — timeline strip + stacked bar + category progress; depends on events having datetime data and goal ranges being defined
 
 ---
 
-## 5. Period Templates — Copy From Previous Week
+## 5. Period Templates — Copy From Previous Week ✅ IMPLEMENTED 2026-02-24
 
 ### Summary
 No automatic copying. When a user wants to set up a new period they can explicitly copy category targets from any previous week that has data.

@@ -148,6 +148,17 @@ for (const table of tables) {
   }
 }
 
+// Migrate: add minHours, maxHours to period_overrides if missing
+{
+  const cols = db.prepare('PRAGMA table_info(period_overrides)').all();
+  if (!cols.find(c => c.name === 'minHours')) {
+    db.exec('ALTER TABLE period_overrides ADD COLUMN minHours REAL');
+  }
+  if (!cols.find(c => c.name === 'maxHours')) {
+    db.exec('ALTER TABLE period_overrides ADD COLUMN maxHours REAL');
+  }
+}
+
 // --- Event category serialization ---
 // categories is stored as JSON string in SQLite, but sent/received as an array over HTTP
 
@@ -398,7 +409,7 @@ app.post('/api/budgets/:id/transactions/batch', (req, res) => {
 
 // --- Period Overrides ---
 
-const OVERRIDE_COLS = ['id', 'budgetId', 'categoryId', 'periodStart', 'targetHours', 'deleted', 'createdAt', 'updatedAt'];
+const OVERRIDE_COLS = ['id', 'budgetId', 'categoryId', 'periodStart', 'targetHours', 'minHours', 'maxHours', 'deleted', 'createdAt', 'updatedAt'];
 
 // --- Sync endpoint ---
 // Returns ALL records changed since lastSyncAt, including soft-deleted ones.
