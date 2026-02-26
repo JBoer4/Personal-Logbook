@@ -66,6 +66,23 @@ Period is currently hardcoded to weekly for time, monthly for money.
 - `cert.pem`, `key.pem` — generate with mkcert for your local IP
 - `server-data/` — SQLite database lives here
 
+## Event Model — Design Decisions
+
+**Hours are "attention hours", not clock hours.**
+- Every category an event is tagged with receives the event's full hours. A 1h event tagged [Lifting, Podcast] gives 1h to Lifting and 1h to Podcast.
+- Overlapping separate events work the same way: each category gets full hours.
+- Category totals can exceed 24h/day — this is correct and intentional.
+
+**Multi-category events are NOT split.** Splitting would be wrong: "Lifting + Cardio" for 1h should show 1h in each, not 0.5h.
+
+**Overlapping separate events** are the right pattern for parallel-tracked activities (e.g. Work 9–5 + on-call/Resting 12–2). Each category gets full credit.
+
+**Parent category rollup:** Hours on a subcategory must also be attributed to all ancestor categories. "Lifting" (child of "Fitness") → Fitness gets those hours too. This is NOT currently implemented in BudgetHome and needs to be added everywhere category totals are computed.
+
+**Weekly timeline bars** must use union-of-intervals (actual clock time covered), not sum of hours, so day columns never visually exceed 24h. Manual-hours-only events add directly to the union as a block.
+
+**Daily bar charts** (DailyLog, bottom of page): per-category/group bars showing attention hours for the day. Informational only — no goal reference, no cap at 24h. Show only categories with >0h logged. Both subcategories and their parent groups are shown; parent bar reflects the rollup total.
+
 ## Planned Work
 
 See `devnotes/backlog.md` for the current feature backlog.

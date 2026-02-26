@@ -149,7 +149,59 @@ No automatic copying. When a user wants to set up a new period they can explicit
 
 ---
 
-## Items Still To Discuss (from user's list)
+---
+
+## 6. Fractional Hour Input ✅ IMPLEMENTED 2026-02-26
+
+### Summary
+`parseDuration` in `utils.js` rejected leading-dot decimals like `.5`. Updated regex to also accept `|\.\d+` as an alternative, so `.5` → 0.5h, `.25` → 0.25h, etc.
+
+---
+
+## 7. Daily Category Bar Charts (DailyLog) ✅ IMPLEMENTED 2026-02-26
+
+### Summary
+After the event list in DailyLog, show a bar chart per category/group reflecting time logged that day.
+
+### Behavior
+- Show both subcategories and their parent groups; parent bar = rollup of all descendant hours
+- Exclude categories with 0h logged that day
+- Purely informational — no goal reference, no visual cap at 24h
+- Accepts double-counting: bars reflect "hours of attention," which can sum to >24h for parallel activities
+
+### Notes
+- Requires parent rollup logic (see item 8 below)
+- Note: this supersedes the original plan statement "Daily log view is unchanged — no charts there" (item 4 above)
+
+---
+
+## 8. Parent Category Hour Rollup ✅ IMPLEMENTED 2026-02-26
+
+### Summary
+Hours attributed to a subcategory must also accumulate into all ancestor categories everywhere totals are computed.
+
+### Affected locations
+- `BudgetHome.js` — `hoursByDayCat` loop does not currently consult `parentId`; parent groups show 0h even when subcategories have entries
+- Daily bar charts (item 7) — same computation needed
+
+### Implementation
+When an event is tagged with categoryId X, walk X's `parentId` chain and add the same hours to each ancestor.
+
+---
+
+## 9. Weekly Timeline — Union-of-Intervals
+
+### Summary
+The weekly timeline day column height is currently a sum of all event hours, which inflates when events overlap (e.g. Work 9–5 + Resting 12–2 = 10h shown instead of 8h).
+
+### Desired behavior
+- Day column height = union of all timed intervals for that day (actual clock time covered), max 24h
+- Manual-hours events (no startAt/endAt) add their hours as a flat block to the union
+- Category segments within the bar are still colored by category (visual decomposition of the actual time)
+- Separate from category totals: category totals remain "attention hours" and can exceed 24h; this fix only affects the visual bar height
+
+---
+
+## Items Still To Discuss
 
 - [ ] Visualizer / chronological organization — not yet discussed
-- [ ] Any other pain points the user wanted to raise

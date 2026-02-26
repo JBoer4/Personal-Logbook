@@ -67,7 +67,17 @@ export function DailyLog({ budgetId, date: dateProp }) {
       setCategories(cats);
       setFlatCats(flattenCategoryTree(buildCategoryTree(cats)));
       const allEvents = await db.getEvents(budgetId);
-      setEvents(allEvents.filter(e => e.date === currentDate));
+      const prevD = parseDate(currentDate);
+      prevD.setDate(prevD.getDate() - 1);
+      const prevDate = toDateStr(prevD);
+      setEvents(allEvents.filter(e => {
+        if (e.date === currentDate) return true;
+        // Include cross-midnight events from the previous day that spill into today
+        if (e.date === prevDate && e.startAt && e.endAt) {
+          return hoursForDate(e, currentDate) > 0;
+        }
+        return false;
+      }));
     } catch (e) {
       console.error('DailyLog load failed:', e);
     } finally {
@@ -197,6 +207,29 @@ export function DailyLog({ budgetId, date: dateProp }) {
   const sorted = sortEvents(events);
   const dayTotal = events.reduce((s, e) => s + hoursForDate(e, currentDate), 0);
 
+  // Per-category hours for today with parent rollup — for the breakdown bars
+  const catById = Object.fromEntries(categories.map(c => [c.id, c]));
+  const hoursByCat = {};
+  for (const event of events) {
+    const catIds = Array.isArray(event.categories) ? event.categories : [];
+    const h = hoursForDate(event, currentDate);
+    if (h > 0) {
+      for (const catId of catIds) {
+        hoursByCat[catId] = (hoursByCat[catId] || 0) + h;
+      }
+    }
+  }
+  for (const catId of [...Object.keys(hoursByCat)]) {
+    const h = hoursByCat[catId];
+    let cat = catById[catId];
+    while (cat && cat.parentId) {
+      hoursByCat[cat.parentId] = (hoursByCat[cat.parentId] || 0) + h;
+      cat = catById[cat.parentId];
+    }
+  }
+  const shownCats = flatCats.filter(({ cat }) => (hoursByCat[cat.id] || 0) > 0);
+  const maxCatHours = shownCats.reduce((m, { cat }) => Math.max(m, hoursByCat[cat.id] || 0), 0);
+
   // Warning: computed hours from form times
   let formComputedHours = null;
   if (form && form.startTime && form.endTime) {
@@ -274,11 +307,16 @@ export function DailyLog({ budgetId, date: dateProp }) {
           const isOpen = event.startAt && !event.endAt;
 
           let timeLabel = '';
+          const crossDay = event.date !== currentDate;
           if (event.startAt && event.endAt) {
-            const sh = event.startAt.slice(11, 16);
-            const eh = event.endAt.slice(11, 16);
             const h = hoursForDate(event, currentDate);
-            timeLabel = `${sh}–${eh} (${h.toFixed(1)}h)`;
+            if (crossDay) {
+              timeLabel = `↩ until ${event.endAt.slice(11, 16)} (${h.toFixed(1)}h)`;
+            } else {
+              const sh = event.startAt.slice(11, 16);
+              const eh = event.endAt.slice(11, 16);
+              timeLabel = `${sh}–${eh} (${h.toFixed(1)}h)`;
+            }
           } else if (event.startAt) {
             timeLabel = `started ${event.startAt.slice(11, 16)}, ongoing`;
           } else if (event.hours != null) {
@@ -310,6 +348,28 @@ export function DailyLog({ budgetId, date: dateProp }) {
 
       ${events.length === 0 && !form && html`
         <p class="empty-state">No events logged yet.</p>
+      `}
+
+      ${shownCats.length > 0 && html`
+        <div class="day-breakdown">
+          <div class="day-breakdown-title">Breakdown</div>
+          ${shownCats.map(({ cat, depth }) => {
+            const h = hoursByCat[cat.id] || 0;
+            const pct = maxCatHours > 0 ? (h / maxCatHours) * 100 : 0;
+            return html`
+              <div class="db-row" key=${cat.id}>
+                <div class="db-label" style=${{ paddingLeft: `${depth * 0.75}rem` }}>
+                  <span class="db-dot" style=${{ background: cat.color }}></span>
+                  <span class="db-name">${cat.name || 'Unnamed'}</span>
+                </div>
+                <div class="db-bar-wrap">
+                  <div class="db-bar" style=${{ width: `${pct}%`, background: cat.color }}></div>
+                </div>
+                <div class="db-hours">${h.toFixed(1)}h</div>
+              </div>
+            `;
+          })}
+        </div>
       `}
     </div>
   `;

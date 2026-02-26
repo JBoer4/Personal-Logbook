@@ -126,9 +126,24 @@ export function BudgetHome({ budgetId }) {
     }
   }
 
-  const catTotals = {};
+  const catById = Object.fromEntries(categories.map(c => [c.id, c]));
+
+  // Direct totals per category for the week (no rollup — used for timeline segments)
+  const directTotals = {};
   for (const cat of categories) {
-    catTotals[cat.id] = weekDateStrs.reduce((s, d) => s + (hoursByDayCat[`${cat.id}|${d}`] || 0), 0);
+    directTotals[cat.id] = weekDateStrs.reduce((s, d) => s + (hoursByDayCat[`${cat.id}|${d}`] || 0), 0);
+  }
+
+  // Totals with parent rollup — child hours accumulate into ancestors
+  const catTotals = { ...directTotals };
+  for (const cat of categories) {
+    const h = directTotals[cat.id];
+    if (!h) continue;
+    let c = cat;
+    while (c && c.parentId) {
+      catTotals[c.parentId] = (catTotals[c.parentId] || 0) + h;
+      c = catById[c.parentId];
+    }
   }
 
   const dayTotals = weekDateStrs.map(dateStr =>

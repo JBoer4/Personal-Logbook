@@ -81,7 +81,7 @@ export function parseDuration(str) {
   if (hmMatch) return parseFloat(hmMatch[1]) + (hmMatch[2] ? parseInt(hmMatch[2]) / 60 : 0);
   const mMatch = str.match(/^(\d+(?:\.\d+)?)m$/i);
   if (mMatch) return parseFloat(mMatch[1]) / 60;
-  const numMatch = str.match(/^(\d+(?:\.\d+)?)$/);
+  const numMatch = str.match(/^(\d+(?:\.\d+)?|\.\d+)$/);
   if (numMatch) return parseFloat(numMatch[1]);
   return null;
 }

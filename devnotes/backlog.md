@@ -32,8 +32,25 @@ Save named templates (e.g. "Loading Week", "Deload Week", "Travel Week") that ca
 
 ## Visualizations
 
-- Specifics TBD — noted during usage, details to be captured as they come up
+### Daily category bar charts (DailyLog)
+At the bottom of the daily log, after the event list, show horizontal (or vertical) bars per category/group for the current day.
+- Show subcategories AND their parent groups (parent bar = rollup of children + any direct hours)
+- Exclude categories with 0h logged that day
+- Purely informational — no goal reference, no cap at 24h
+- Accepts double-counting: bars can sum to >24h (reflects "hours of attention")
+- Requires parent rollup logic (see below)
+
+### Weekly timeline — union-of-intervals for day height
+Currently day column height = sum of all event hours, which inflates when events overlap.
+Should use union-of-intervals across all timed events so the bar never visually exceeds 24h.
+Manual-hours events (no startAt/endAt) add their hours directly as a flat block.
 
 ## Logging structural changes
 
-- Details TBD — to be captured when work begins
+### Fractional hour input
+`parseDuration` in utils.js currently requires a leading digit — `.5` fails, `0.5` works.
+Fix: update the bare-number regex to accept leading-dot decimals (`.5` → 0.5h, `.25` → 0.25h).
+
+### Parent category hour rollup
+Everywhere category totals are computed (BudgetHome, daily bar charts), hours attributed to a subcategory must also accumulate into all ancestor categories.
+Currently `parentId` is not consulted in BudgetHome's `hoursByDayCat` loop — parent groups show 0h even when subcategories have entries.
