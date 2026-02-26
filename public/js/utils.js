@@ -125,6 +125,48 @@ export function hoursForDate(event, date) {
   return 0;
 }
 
+// Union-of-intervals for actual clock time covered on a given date.
+// Timed events are merged (overlapping spans count once); manual-hours events
+// (no startAt/endAt) are added directly since they have no clock position to merge.
+export function unionHoursForDate(events, date) {
+  const dayStart = new Date(date + 'T00:00').getTime();
+  const dayEndMs = new Date(date + 'T00:00');
+  dayEndMs.setDate(dayEndMs.getDate() + 1);
+  const dayEnd = dayEndMs.getTime();
+
+  const intervals = [];
+  let manualHours = 0;
+
+  for (const event of events) {
+    if (event.startAt && event.endAt) {
+      const s = Math.max(new Date(event.startAt).getTime(), dayStart);
+      const e = Math.min(new Date(event.endAt).getTime(), dayEnd);
+      if (s < e) intervals.push([s, e]);
+    } else if (!event.startAt && event.date === date) {
+      manualHours += event.hours || 0;
+    }
+  }
+
+  intervals.sort((a, b) => a[0] - b[0]);
+
+  let union = 0;
+  let curStart = null;
+  let curEnd = null;
+  for (const [s, e] of intervals) {
+    if (curStart === null) {
+      curStart = s; curEnd = e;
+    } else if (s <= curEnd) {
+      curEnd = Math.max(curEnd, e);
+    } else {
+      union += curEnd - curStart;
+      curStart = s; curEnd = e;
+    }
+  }
+  if (curStart !== null) union += curEnd - curStart;
+
+  return union / 3600000 + manualHours;
+}
+
 export function today() {
   return toDateStr(new Date());
 }

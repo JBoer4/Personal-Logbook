@@ -3,7 +3,7 @@ import { html } from 'htm/preact';
 import { db } from '../db.js';
 import { navigate } from '../router.js';
 import { syncAfterMutation } from '../sync.js';
-import { uuid, now, getWeekStart, getWeekDates, toDateStr, formatRange, dayName, hoursForDate } from '../utils.js';
+import { uuid, now, getWeekStart, getWeekDates, toDateStr, formatRange, dayName, hoursForDate, unionHoursForDate } from '../utils.js';
 
 export function BudgetHome({ budgetId }) {
   const [budget, setBudget] = useState(null);
@@ -146,10 +146,52 @@ export function BudgetHome({ budgetId }) {
     }
   }
 
-  const dayTotals = weekDateStrs.map(dateStr =>
-    events.reduce((s, e) => s + hoursForDate(e, dateStr), 0)
-  );
+  const dayTotals = weekDateStrs.map(dateStr => unionHoursForDate(events, dateStr));
   const maxDay = Math.max(24, ...dayTotals);
+
+  // Clock-positioned events per day for the timeline strip
+  const DAY_MS = 86400000;
+  const clockEventsByDay = {};
+  for (const dateStr of weekDateStrs) {
+    const dayStart = new Date(dateStr + 'T00:00').getTime();
+    const dayEnd = dayStart + DAY_MS;
+    const placed = [];
+    for (const event of events
+      .filter(e => e.startAt && e.endAt)
+      .map(e => ({
+        event: e,
+        startMs: Math.max(new Date(e.startAt).getTime(), dayStart),
+        endMs: Math.min(new Date(e.endAt).getTime(), dayEnd),
+      }))
+      .filter(({ startMs, endMs }) => startMs < endMs)
+      .sort((a, b) => a.startMs - b.startMs)
+    ) {
+      const lane0Busy = placed.some(p => p.lane === 0 && p.startMs < event.endMs && p.endMs > event.startMs);
+      placed.push({ ...event, lane: lane0Busy ? 1 : 0 });
+    }
+    // Break each event into segments at overlap boundaries so the split is
+    // only applied during the actual concurrent window, not the whole event.
+    const segments = [];
+    for (const p of placed) {
+      const boundaries = new Set([p.startMs, p.endMs]);
+      for (const other of placed) {
+        if (other === p) continue;
+        if (other.startMs < p.endMs && other.endMs > p.startMs) {
+          if (other.startMs > p.startMs) boundaries.add(other.startMs);
+          if (other.endMs < p.endMs) boundaries.add(other.endMs);
+        }
+      }
+      const sorted = [...boundaries].sort((a, b) => a - b);
+      for (let i = 0; i < sorted.length - 1; i++) {
+        const segStart = sorted[i];
+        const segEnd = sorted[i + 1];
+        const mid = (segStart + segEnd) / 2;
+        const split = placed.some(o => o !== p && o.startMs <= mid && o.endMs >= mid);
+        segments.push({ event: p.event, startMs: segStart, endMs: segEnd, lane: p.lane, split });
+      }
+    }
+    clockEventsByDay[dateStr] = segments;
+  }
 
   async function renameBudget(newName) {
     if (!budget || !newName.trim()) return;
@@ -214,16 +256,34 @@ export function BudgetHome({ budgetId }) {
             <div class="timeline-col" key=${dateStr}
               onClick=${() => navigate(`/budget/${budgetId}/log/${dateStr}`)}>
               <div class="timeline-label">${dayName(date)}</div>
-              <div class="timeline-bar">
-                ${categories.map(cat => {
-                  const h = hoursByDayCat[`${cat.id}|${dateStr}`] || 0;
-                  if (h === 0) return null;
-                  const pct = (h / maxDay) * 100;
-                  return html`<div class="timeline-segment" style=${{
-                    background: cat.color,
-                    height: `${pct}%`,
-                  }} title="${cat.name}: ${h.toFixed(1)}h"></div>`;
-                })}
+              <div class="timeline-day">
+                <div class="tl-strip">
+                  ${clockEventsByDay[dateStr].map(({ event, startMs, endMs, lane, split }) => {
+                    const dayStart = new Date(dateStr + 'T00:00').getTime();
+                    const topPct = (startMs - dayStart) / DAY_MS * 100;
+                    const heightPct = (endMs - startMs) / DAY_MS * 100;
+                    const catIds = Array.isArray(event.categories) ? event.categories : [];
+                    const color = catIds.length > 0 ? (catById[catIds[0]]?.color || '#888') : '#888';
+                    return html`<div class="tl-event" key=${`${event.id}|${startMs}`} style=${{
+                      bottom: `${topPct}%`,
+                      height: `${heightPct}%`,
+                      left: split && lane === 1 ? '50%' : '0',
+                      width: split ? '50%' : '100%',
+                      background: color,
+                    }}></div>`;
+                  })}
+                </div>
+                <div class="tl-bar">
+                  ${categories.map(cat => {
+                    const h = hoursByDayCat[`${cat.id}|${dateStr}`] || 0;
+                    if (h === 0) return null;
+                    const pct = (h / maxDay) * 100;
+                    return html`<div class="timeline-segment" style=${{
+                      background: cat.color,
+                      height: `${pct}%`,
+                    }} title="${cat.name}: ${h.toFixed(1)}h"></div>`;
+                  })}
+                </div>
               </div>
               <div class="timeline-total">${dayTotals[i].toFixed(1)}</div>
             </div>

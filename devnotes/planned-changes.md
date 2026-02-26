@@ -189,7 +189,7 @@ When an event is tagged with categoryId X, walk X's `parentId` chain and add the
 
 ---
 
-## 9. Weekly Timeline — Union-of-Intervals
+## 9. Weekly Timeline — Union-of-Intervals ✅ IMPLEMENTED 2026-02-26
 
 ### Summary
 The weekly timeline day column height is currently a sum of all event hours, which inflates when events overlap (e.g. Work 9–5 + Resting 12–2 = 10h shown instead of 8h).

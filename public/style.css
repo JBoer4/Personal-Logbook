@@ -229,10 +229,10 @@ html, body {
 
 .timeline {
   display: flex;
-  gap: 4px;
-  height: 160px;
+  gap: 6px;
+  height: 200px;
   margin: 16px 0;
-  padding: 0 4px;
+  padding: 0 2px;
 }
 
 .timeline-col {
@@ -242,6 +242,10 @@ html, body {
   align-items: center;
   cursor: pointer;
   gap: 4px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 5px 3px;
 }
 
 .timeline-label {
@@ -250,12 +254,35 @@ html, body {
   flex-shrink: 0;
 }
 
-.timeline-bar {
+.timeline-day {
   flex: 1;
   width: 100%;
   display: flex;
-  flex-direction: column-reverse;
+  gap: 2px;
+  overflow: hidden;
   border-radius: 4px;
+}
+
+.tl-strip {
+  width: 28%;
+  flex-shrink: 0;
+  position: relative;
+  background: var(--bg-input);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.tl-event {
+  position: absolute;
+  border-radius: 1px;
+  min-height: 2px;
+}
+
+.tl-bar {
+  flex: 1;
+  display: flex;
+  flex-direction: column-reverse;
+  border-radius: 3px;
   overflow: hidden;
   background: var(--bg-input);
 }
