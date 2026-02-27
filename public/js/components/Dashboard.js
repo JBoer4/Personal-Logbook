@@ -13,13 +13,13 @@ const DEFAULT_TIME_CATEGORIES = [
 ];
 
 const DEFAULT_MONEY_CATEGORIES = [
-  { name: 'Housing', color: '#6366f1', targetHours: 0 },
-  { name: 'Groceries', color: '#10b981', targetHours: 0 },
-  { name: 'Transport', color: '#f59e0b', targetHours: 0 },
-  { name: 'Dining Out', color: '#ec4899', targetHours: 0 },
-  { name: 'Utilities', color: '#06b6d4', targetHours: 0 },
-  { name: 'Entertainment', color: '#8b5cf6', targetHours: 0 },
-  { name: 'Other', color: '#64748b', targetHours: 0 },
+  { name: 'Housing', color: '#6366f1', targetAmount: 0 },
+  { name: 'Groceries', color: '#10b981', targetAmount: 0 },
+  { name: 'Transport', color: '#f59e0b', targetAmount: 0 },
+  { name: 'Dining Out', color: '#ec4899', targetAmount: 0 },
+  { name: 'Utilities', color: '#06b6d4', targetAmount: 0 },
+  { name: 'Entertainment', color: '#8b5cf6', targetAmount: 0 },
+  { name: 'Other', color: '#64748b', targetAmount: 0 },
 ];
 
 async function seedBudget() {
@@ -93,7 +93,7 @@ export function Dashboard() {
           budgetId: budget.id,
           name: cat.name,
           color: cat.color,
-          targetHours: cat.targetHours,
+          targetAmount: cat.targetAmount,
           sortOrder: i,
           createdAt: ts,
           updatedAt: ts,

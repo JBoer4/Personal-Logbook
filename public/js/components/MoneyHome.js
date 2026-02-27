@@ -74,7 +74,7 @@ export function MoneyHome({ budgetId }) {
   }
 
   const totalSpent = Object.values(catSpending).reduce((s, v) => s + v, 0) + uncategorizedSpending;
-  const totalBudgeted = categories.reduce((s, c) => s + (c.targetHours || 0), 0);
+  const totalBudgeted = categories.reduce((s, c) => s + (c.targetAmount || 0), 0);
   const maxSpending = Math.max(...Object.values(catSpending), uncategorizedSpending, 1);
 
   const uncatCount = transactions.filter(t => !t.categoryId).length;
@@ -156,7 +156,7 @@ export function MoneyHome({ budgetId }) {
           <h3>Budget vs Actual</h3>
           ${categories.map(cat => {
             const actual = catSpending[cat.id] || 0;
-            const target = cat.targetHours || 0;
+            const target = cat.targetAmount || 0;
             const pct = target > 0 ? Math.min((actual / target) * 100, 150) : 0;
             const over = target > 0 && actual > target;
             return html`

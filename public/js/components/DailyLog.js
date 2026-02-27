@@ -6,34 +6,8 @@ import { navigate } from '../router.js';
 import {
   uuid, now, today, toDateStr, parseDate, formatShort, dayName,
   parseDuration, formatDuration, calcHoursFromDatetimes, hoursForDate,
+  buildCategoryTree, flattenCategoryTree, computeHoursByCat,
 } from '../utils.js';
-
-function buildCategoryTree(cats) {
-  const byId = {};
-  const roots = [];
-  for (const c of cats) byId[c.id] = { ...c, children: [] };
-  for (const c of cats) {
-    if (c.parentId && byId[c.parentId]) {
-      byId[c.parentId].children.push(byId[c.id]);
-    } else {
-      roots.push(byId[c.id]);
-    }
-  }
-  const sort = (nodes) => {
-    nodes.sort((a, b) => a.sortOrder - b.sortOrder);
-    nodes.forEach(n => sort(n.children));
-  };
-  sort(roots);
-  return roots;
-}
-
-function flattenCategoryTree(nodes, depth = 0, result = []) {
-  nodes.forEach(node => {
-    result.push({ cat: node, depth });
-    flattenCategoryTree(node.children, depth + 1, result);
-  });
-  return result;
-}
 
 function sortEvents(events) {
   const open = events.filter(e => e.startAt && !e.endAt);
@@ -208,25 +182,7 @@ export function DailyLog({ budgetId, date: dateProp }) {
   const dayTotal = events.reduce((s, e) => s + hoursForDate(e, currentDate), 0);
 
   // Per-category hours for today with parent rollup — for the breakdown bars
-  const catById = Object.fromEntries(categories.map(c => [c.id, c]));
-  const hoursByCat = {};
-  for (const event of events) {
-    const catIds = Array.isArray(event.categories) ? event.categories : [];
-    const h = hoursForDate(event, currentDate);
-    if (h > 0) {
-      for (const catId of catIds) {
-        hoursByCat[catId] = (hoursByCat[catId] || 0) + h;
-      }
-    }
-  }
-  for (const catId of [...Object.keys(hoursByCat)]) {
-    const h = hoursByCat[catId];
-    let cat = catById[catId];
-    while (cat && cat.parentId) {
-      hoursByCat[cat.parentId] = (hoursByCat[cat.parentId] || 0) + h;
-      cat = catById[cat.parentId];
-    }
-  }
+  const hoursByCat = computeHoursByCat(events, [currentDate], categories);
   const shownCats = flatCats.filter(({ cat }) => (hoursByCat[cat.id] || 0) > 0);
   const maxCatHours = shownCats.reduce((m, { cat }) => Math.max(m, hoursByCat[cat.id] || 0), 0);
 

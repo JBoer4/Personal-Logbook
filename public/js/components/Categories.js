@@ -2,39 +2,9 @@ import { useState, useEffect, useRef } from 'preact/hooks';
 import { html } from 'htm/preact';
 import { db } from '../db.js';
 import { syncAfterMutation } from '../sync.js';
-import { uuid, now } from '../utils.js';
+import { uuid, now, buildCategoryTree, flattenCategoryTree } from '../utils.js';
 
 const PALETTE = ['#6366f1', '#f59e0b', '#10b981', '#ec4899', '#8b5cf6', '#06b6d4', '#f97316', '#84cc16', '#e11d48', '#64748b'];
-
-// Build an n-level tree from a flat category list.
-// Orphaned children (parent deleted/missing) float to root.
-function buildTree(cats) {
-  const byId = {};
-  const roots = [];
-  for (const c of cats) byId[c.id] = { ...c, children: [] };
-  for (const c of cats) {
-    if (c.parentId && byId[c.parentId]) {
-      byId[c.parentId].children.push(byId[c.id]);
-    } else {
-      roots.push(byId[c.id]);
-    }
-  }
-  const sort = (nodes) => {
-    nodes.sort((a, b) => a.sortOrder - b.sortOrder);
-    for (const n of nodes) sort(n.children);
-  };
-  sort(roots);
-  return roots;
-}
-
-// Flatten tree to pre-order list with depth + sibling info for rendering.
-function flattenTree(nodes, depth = 0, result = []) {
-  nodes.forEach((node, siblingIndex) => {
-    result.push({ cat: node, depth, siblingIndex, siblingCount: nodes.length });
-    flattenTree(node.children, depth + 1, result);
-  });
-  return result;
-}
 
 // All descendant IDs of a given category (to prevent reparenting cycles).
 function getDescendantIds(id, allCats) {
@@ -132,8 +102,8 @@ export function Categories({ budgetId }) {
 
   if (loading) return html`<div class="loading">Loading...</div>`;
 
-  const tree = buildTree(categories);
-  const flat = flattenTree(tree);
+  const tree = buildCategoryTree(categories);
+  const flat = flattenCategoryTree(tree);
 
   return html`
     <div class="categories-view">

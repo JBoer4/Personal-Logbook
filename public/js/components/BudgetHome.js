@@ -1,9 +1,9 @@
-import { useState, useEffect, useRef } from 'preact/hooks';
+import { useState, useEffect, useRef, useMemo } from 'preact/hooks';
 import { html } from 'htm/preact';
 import { db } from '../db.js';
 import { navigate } from '../router.js';
 import { syncAfterMutation } from '../sync.js';
-import { uuid, now, getWeekStart, getWeekDates, toDateStr, formatRange, dayName, hoursForDate, unionHoursForDate } from '../utils.js';
+import { uuid, now, getWeekStart, getWeekDates, toDateStr, formatRange, dayName, hoursForDate, unionHoursForDate, computeHoursByCat, MS_PER_DAY } from '../utils.js';
 
 export function BudgetHome({ budgetId }) {
   const [budget, setBudget] = useState(null);
@@ -51,17 +51,13 @@ export function BudgetHome({ budgetId }) {
         const alreadySnapshotted = allSnapshots.some(s => s.periodStart === currentWeekStr);
         if (goalCats.length > 0 && !alreadySnapshotted) {
           const ts = now();
-          const newSnapshots = [];
-          for (const cat of goalCats) {
-            const snap = {
-              id: uuid(), budgetId, categoryId: cat.id,
-              periodStart: currentWeekStr, targetHours: 0,
-              minHours: cat.minHours, maxHours: cat.maxHours,
-              createdAt: ts, updatedAt: ts,
-            };
-            await db.putOverride(snap);
-            newSnapshots.push(snap);
-          }
+          const newSnapshots = goalCats.map(cat => ({
+            id: uuid(), budgetId, categoryId: cat.id,
+            periodStart: currentWeekStr, targetHours: 0,
+            minHours: cat.minHours, maxHours: cat.maxHours,
+            createdAt: ts, updatedAt: ts,
+          }));
+          await Promise.all(newSnapshots.map(s => db.putOverride(s)));
           setGoalSnapshots([...allSnapshots, ...newSnapshots]);
           syncAfterMutation();
         }
@@ -91,14 +87,13 @@ export function BudgetHome({ budgetId }) {
     const snapByCategory = Object.fromEntries(sourceSnaps.map(s => [s.categoryId, s]));
 
     const ts = now();
-    const updatedCats = [];
-    for (const cat of categories) {
-      const snap = snapByCategory[cat.id];
-      if (!snap) continue; // no goal history for this category in that week
-      const updated = { ...cat, minHours: snap.minHours, maxHours: snap.maxHours, updatedAt: ts };
-      await db.putCategory(updated);
-      updatedCats.push(updated);
-    }
+    const updatedCats = categories
+      .filter(cat => snapByCategory[cat.id])
+      .map(cat => {
+        const snap = snapByCategory[cat.id];
+        return { ...cat, minHours: snap.minHours, maxHours: snap.maxHours, updatedAt: ts };
+      });
+    await Promise.all(updatedCats.map(c => db.putCategory(c)));
 
     if (updatedCats.length > 0) {
       setCategories(prev => prev.map(c => {
@@ -111,87 +106,85 @@ export function BudgetHome({ budgetId }) {
     syncAfterMutation();
   }
 
-  // Build hours by (categoryId, date)
-  const hoursByDayCat = {};
-  for (const event of events) {
-    const catIds = Array.isArray(event.categories) ? event.categories : [];
-    for (const dateStr of weekDateStrs) {
-      const h = hoursForDate(event, dateStr);
-      if (h > 0) {
-        for (const catId of catIds) {
-          const key = `${catId}|${dateStr}`;
-          hoursByDayCat[key] = (hoursByDayCat[key] || 0) + h;
+  const catById = useMemo(
+    () => Object.fromEntries(categories.map(c => [c.id, c])),
+    [categories]
+  );
+
+  // Build hours by (categoryId, date) — no rollup, for timeline bar segments
+  const hoursByDayCat = useMemo(() => {
+    const result = {};
+    for (const event of events) {
+      const catIds = Array.isArray(event.categories) ? event.categories : [];
+      for (const dateStr of weekDateStrs) {
+        const h = hoursForDate(event, dateStr);
+        if (h > 0) {
+          for (const catId of catIds) {
+            const key = `${catId}|${dateStr}`;
+            result[key] = (result[key] || 0) + h;
+          }
         }
       }
     }
-  }
+    return result;
+  }, [events, weekDateStrs]);
 
-  const catById = Object.fromEntries(categories.map(c => [c.id, c]));
+  // Weekly totals with parent rollup (for goal progress)
+  const catTotals = useMemo(
+    () => computeHoursByCat(events, weekDateStrs, categories),
+    [events, weekDateStrs, categories]
+  );
 
-  // Direct totals per category for the week (no rollup — used for timeline segments)
-  const directTotals = {};
-  for (const cat of categories) {
-    directTotals[cat.id] = weekDateStrs.reduce((s, d) => s + (hoursByDayCat[`${cat.id}|${d}`] || 0), 0);
-  }
-
-  // Totals with parent rollup — child hours accumulate into ancestors
-  const catTotals = { ...directTotals };
-  for (const cat of categories) {
-    const h = directTotals[cat.id];
-    if (!h) continue;
-    let c = cat;
-    while (c && c.parentId) {
-      catTotals[c.parentId] = (catTotals[c.parentId] || 0) + h;
-      c = catById[c.parentId];
-    }
-  }
-
-  const dayTotals = weekDateStrs.map(dateStr => unionHoursForDate(events, dateStr));
-  const maxDay = Math.max(24, ...dayTotals);
+  const { dayTotals, maxDay } = useMemo(() => {
+    const totals = weekDateStrs.map(dateStr => unionHoursForDate(events, dateStr));
+    return { dayTotals: totals, maxDay: Math.max(24, ...totals) };
+  }, [events, weekDateStrs]);
 
   // Clock-positioned events per day for the timeline strip
-  const DAY_MS = 86400000;
-  const clockEventsByDay = {};
-  for (const dateStr of weekDateStrs) {
-    const dayStart = new Date(dateStr + 'T00:00').getTime();
-    const dayEnd = dayStart + DAY_MS;
-    const placed = [];
-    for (const event of events
-      .filter(e => e.startAt && e.endAt)
-      .map(e => ({
-        event: e,
-        startMs: Math.max(new Date(e.startAt).getTime(), dayStart),
-        endMs: Math.min(new Date(e.endAt).getTime(), dayEnd),
-      }))
-      .filter(({ startMs, endMs }) => startMs < endMs)
-      .sort((a, b) => a.startMs - b.startMs)
-    ) {
-      const lane0Busy = placed.some(p => p.lane === 0 && p.startMs < event.endMs && p.endMs > event.startMs);
-      placed.push({ ...event, lane: lane0Busy ? 1 : 0 });
-    }
-    // Break each event into segments at overlap boundaries so the split is
-    // only applied during the actual concurrent window, not the whole event.
-    const segments = [];
-    for (const p of placed) {
-      const boundaries = new Set([p.startMs, p.endMs]);
-      for (const other of placed) {
-        if (other === p) continue;
-        if (other.startMs < p.endMs && other.endMs > p.startMs) {
-          if (other.startMs > p.startMs) boundaries.add(other.startMs);
-          if (other.endMs < p.endMs) boundaries.add(other.endMs);
+  const clockEventsByDay = useMemo(() => {
+    const result = {};
+    for (const dateStr of weekDateStrs) {
+      const dayStart = new Date(dateStr + 'T00:00').getTime();
+      const dayEnd = dayStart + MS_PER_DAY;
+      const placed = [];
+      for (const event of events
+        .filter(e => e.startAt && e.endAt)
+        .map(e => ({
+          event: e,
+          startMs: Math.max(new Date(e.startAt).getTime(), dayStart),
+          endMs: Math.min(new Date(e.endAt).getTime(), dayEnd),
+        }))
+        .filter(({ startMs, endMs }) => startMs < endMs)
+        .sort((a, b) => a.startMs - b.startMs)
+      ) {
+        const lane0Busy = placed.some(p => p.lane === 0 && p.startMs < event.endMs && p.endMs > event.startMs);
+        placed.push({ ...event, lane: lane0Busy ? 1 : 0 });
+      }
+      // Break each event into segments at overlap boundaries so the split is
+      // only applied during the actual concurrent window, not the whole event.
+      const segments = [];
+      for (const p of placed) {
+        const boundaries = new Set([p.startMs, p.endMs]);
+        for (const other of placed) {
+          if (other === p) continue;
+          if (other.startMs < p.endMs && other.endMs > p.startMs) {
+            if (other.startMs > p.startMs) boundaries.add(other.startMs);
+            if (other.endMs < p.endMs) boundaries.add(other.endMs);
+          }
+        }
+        const sorted = [...boundaries].sort((a, b) => a - b);
+        for (let i = 0; i < sorted.length - 1; i++) {
+          const segStart = sorted[i];
+          const segEnd = sorted[i + 1];
+          const mid = (segStart + segEnd) / 2;
+          const split = placed.some(o => o !== p && o.startMs <= mid && o.endMs >= mid);
+          segments.push({ event: p.event, startMs: segStart, endMs: segEnd, lane: p.lane, split });
         }
       }
-      const sorted = [...boundaries].sort((a, b) => a - b);
-      for (let i = 0; i < sorted.length - 1; i++) {
-        const segStart = sorted[i];
-        const segEnd = sorted[i + 1];
-        const mid = (segStart + segEnd) / 2;
-        const split = placed.some(o => o !== p && o.startMs <= mid && o.endMs >= mid);
-        segments.push({ event: p.event, startMs: segStart, endMs: segEnd, lane: p.lane, split });
-      }
+      result[dateStr] = segments;
     }
-    clockEventsByDay[dateStr] = segments;
-  }
+    return result;
+  }, [events, weekDateStrs]);
 
   async function renameBudget(newName) {
     if (!budget || !newName.trim()) return;
@@ -260,8 +253,8 @@ export function BudgetHome({ budgetId }) {
                 <div class="tl-strip">
                   ${clockEventsByDay[dateStr].map(({ event, startMs, endMs, lane, split }) => {
                     const dayStart = new Date(dateStr + 'T00:00').getTime();
-                    const topPct = (startMs - dayStart) / DAY_MS * 100;
-                    const heightPct = (endMs - startMs) / DAY_MS * 100;
+                    const topPct = (startMs - dayStart) / MS_PER_DAY * 100;
+                    const heightPct = (endMs - startMs) / MS_PER_DAY * 100;
                     const catIds = Array.isArray(event.categories) ? event.categories : [];
                     const color = catIds.length > 0 ? (catById[catIds[0]]?.color || '#888') : '#888';
                     return html`<div class="tl-event" key=${`${event.id}|${startMs}`} style=${{

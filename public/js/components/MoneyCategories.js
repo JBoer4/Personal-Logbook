@@ -41,7 +41,7 @@ export function MoneyCategories({ budgetId }) {
       budgetId,
       name: '',
       color: PALETTE[categories.length % PALETTE.length],
-      targetHours: 0,
+      targetAmount: 0,
       sortOrder: categories.length,
       createdAt: ts,
       updatedAt: ts,
@@ -74,7 +74,7 @@ export function MoneyCategories({ budgetId }) {
 
   if (loading) return html`<div class="loading">Loading...</div>`;
 
-  const totalTarget = categories.reduce((s, c) => s + (c.targetHours || 0), 0);
+  const totalTarget = categories.reduce((s, c) => s + (c.targetAmount || 0), 0);
 
   return html`
     <div class="categories-view">
@@ -93,9 +93,9 @@ export function MoneyCategories({ budgetId }) {
               onInput=${(e) => updateCat(cat.id, 'name', e.target.value)} />
             <div class="cat-hours-wrap">
               <span class="cat-hours-label">$</span>
-              <input class="cat-hours-input cat-amount-input" type="number" value=${cat.targetHours}
+              <input class="cat-hours-input cat-amount-input" type="number" value=${cat.targetAmount}
                 min="0" step="1"
-                onInput=${(e) => updateCat(cat.id, 'targetHours', parseFloat(e.target.value) || 0)} />
+                onInput=${(e) => updateCat(cat.id, 'targetAmount', parseFloat(e.target.value) || 0)} />
             </div>
             <div class="cat-actions">
               <button class="cat-move" onClick=${() => moveCat(cat.id, -1)} disabled=${i === 0}>↑</button>

@@ -1,5 +1,8 @@
 // Week math and date formatting utilities
 
+export const MS_PER_HOUR = 3600000;
+export const MS_PER_DAY = 86400000;
+
 export function uuid() {
   return crypto.randomUUID();
 }
@@ -101,7 +104,7 @@ export function calcHoursFromDatetimes(startAt, endAt) {
   if (!startAt || !endAt) return null;
   const diff = new Date(endAt) - new Date(startAt);
   if (diff < 0) return null;
-  return Math.round(diff / 3600000 * 100) / 100;
+  return Math.round(diff / MS_PER_HOUR * 100) / 100;
 }
 
 // Hours an event contributes to a specific date YYYY-MM-DD (handles midnight crossover)
@@ -116,7 +119,7 @@ export function hoursForDate(event, date) {
     const effectiveStart = start < dayStart ? dayStart : start;
     const effectiveEnd = end > dayEnd ? dayEnd : end;
     if (effectiveStart >= effectiveEnd) return 0;
-    return Math.round((effectiveEnd - effectiveStart) / 3600000 * 100) / 100;
+    return Math.round((effectiveEnd - effectiveStart) / MS_PER_HOUR * 100) / 100;
   }
   // Open event: not yet complete, no hours to attribute
   if (startAt && !endAt) return 0;
@@ -164,7 +167,7 @@ export function unionHoursForDate(events, date) {
   }
   if (curStart !== null) union += curEnd - curStart;
 
-  return union / 3600000 + manualHours;
+  return union / MS_PER_HOUR + manualHours;
 }
 
 export function today() {
@@ -206,4 +209,65 @@ export function formatCurrency(amount) {
 export function parseOFXDate(dtposted) {
   if (!dtposted || dtposted.length < 8) return null;
   return `${dtposted.slice(0, 4)}-${dtposted.slice(4, 6)}-${dtposted.slice(6, 8)}`;
+}
+
+// --- Category tree utilities ---
+
+// Build an n-level tree from a flat category list.
+// Orphaned children (parent deleted/missing) float to root.
+export function buildCategoryTree(cats) {
+  const byId = {};
+  const roots = [];
+  for (const c of cats) byId[c.id] = { ...c, children: [] };
+  for (const c of cats) {
+    if (c.parentId && byId[c.parentId]) {
+      byId[c.parentId].children.push(byId[c.id]);
+    } else {
+      roots.push(byId[c.id]);
+    }
+  }
+  const sort = (nodes) => {
+    nodes.sort((a, b) => a.sortOrder - b.sortOrder);
+    for (const n of nodes) sort(n.children);
+  };
+  sort(roots);
+  return roots;
+}
+
+// Flatten tree to pre-order list with depth + sibling info for rendering.
+export function flattenCategoryTree(nodes, depth = 0, result = []) {
+  nodes.forEach((node, siblingIndex) => {
+    result.push({ cat: node, depth, siblingIndex, siblingCount: nodes.length });
+    flattenCategoryTree(node.children, depth + 1, result);
+  });
+  return result;
+}
+
+// Compute attention hours per category across given dates, with parent rollup.
+// Returns { [categoryId]: totalHours }
+export function computeHoursByCat(events, dates, categories) {
+  const catById = Object.fromEntries(categories.map(c => [c.id, c]));
+  const direct = {};
+  for (const event of events) {
+    const catIds = Array.isArray(event.categories) ? event.categories : [];
+    for (const dateStr of dates) {
+      const h = hoursForDate(event, dateStr);
+      if (h > 0) {
+        for (const catId of catIds) {
+          direct[catId] = (direct[catId] || 0) + h;
+        }
+      }
+    }
+  }
+  // Roll up to parents
+  const totals = { ...direct };
+  for (const catId of Object.keys(direct)) {
+    const h = direct[catId];
+    let cat = catById[catId];
+    while (cat && cat.parentId) {
+      totals[cat.parentId] = (totals[cat.parentId] || 0) + h;
+      cat = catById[cat.parentId];
+    }
+  }
+  return totals;
 }

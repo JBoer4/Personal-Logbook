@@ -159,6 +159,17 @@ for (const table of tables) {
   }
 }
 
+// Migrate: add targetAmount to categories (replaces targetHours for money budgets)
+{
+  const cols = db.prepare('PRAGMA table_info(categories)').all();
+  if (!cols.find(c => c.name === 'targetAmount')) {
+    db.exec('ALTER TABLE categories ADD COLUMN targetAmount REAL');
+    // Copy targetHours into targetAmount for money budget categories
+    db.exec(`UPDATE categories SET targetAmount = targetHours
+      WHERE budgetId IN (SELECT id FROM budgets WHERE type = 'money')`);
+  }
+}
+
 // --- Event category serialization ---
 // categories is stored as JSON string in SQLite, but sent/received as an array over HTTP
 
@@ -229,7 +240,7 @@ app.delete('/api/budgets/:id', (req, res) => {
 
 // --- Categories ---
 
-const CATEGORY_COLS = ['id', 'budgetId', 'parentId', 'name', 'color', 'targetHours', 'minHours', 'maxHours', 'sortOrder', 'deleted', 'createdAt', 'updatedAt'];
+const CATEGORY_COLS = ['id', 'budgetId', 'parentId', 'name', 'color', 'targetHours', 'targetAmount', 'minHours', 'maxHours', 'sortOrder', 'deleted', 'createdAt', 'updatedAt'];
 
 app.get('/api/budgets/:id/categories', (req, res) => {
   res.json(db.prepare('SELECT * FROM categories WHERE budgetId = ? AND deleted = 0 ORDER BY sortOrder').all(req.params.id));
