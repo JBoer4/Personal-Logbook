@@ -41,7 +41,14 @@ export function BudgetHome({ budgetId }) {
       ))].sort().reverse();
       setAllEventWeeks(uniqueWeeks);
 
-      setEvents(allEvents.filter(e => weekDateStrs.includes(e.date)));
+      setEvents(allEvents.filter(e => {
+        if (weekDateStrs.includes(e.date)) return true;
+        // Include cross-week events (e.g. sleep spanning Sat night → Sun morning)
+        if (e.startAt && e.endAt) {
+          return weekDateStrs.some(d => hoursForDate(e, d) > 0);
+        }
+        return false;
+      }));
 
       // Silently snapshot current week's goals so past weeks can be copied from later.
       // Only runs for the actual current week (not when browsing history).
