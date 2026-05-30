@@ -433,7 +433,7 @@ app.post('/api/sync', (req, res) => {
   const syncTransaction = db.transaction(() => {
     // Upsert client records (including soft-deleted ones)
     for (const r of cBudgets) upsertRow('budgets', { deleted: 0, ...r }, BUDGET_COLS);
-    for (const r of cCategories) upsertRow('categories', { deleted: 0, ...r }, CATEGORY_COLS);
+    for (const r of cCategories) upsertRow('categories', { targetHours: 0, deleted: 0, ...r }, CATEGORY_COLS);
     for (const r of cEntries) upsertRow('entries', { deleted: 0, ...r }, ENTRY_COLS);
     for (const r of cEvents) upsertRow('events', serializeEvent({ deleted: 0, ...r }), EVENT_COLS);
     for (const r of cOverrides) upsertRow('period_overrides', { deleted: 0, ...r }, OVERRIDE_COLS);

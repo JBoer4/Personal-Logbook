@@ -3,7 +3,7 @@ import { html } from 'htm/preact';
 import { db } from '../db.js';
 import { navigate } from '../router.js';
 import { syncAfterMutation } from '../sync.js';
-import { now, getMonthDates, getMonthLabel, formatCurrency } from '../utils.js';
+import { now, getMonthDates, getMonthLabel, formatCurrency, buildCategoryTree, flattenCategoryTree } from '../utils.js';
 
 export function MoneyHome({ budgetId }) {
   const [budget, setBudget] = useState(null);
@@ -59,23 +59,41 @@ export function MoneyHome({ budgetId }) {
 
   if (loading) return html`<div class="loading">Loading...</div>`;
 
-  // Compute spending per category (expenses only, amounts are negative)
-  const catSpending = {};
+  const catById = Object.fromEntries(categories.map(c => [c.id, c]));
+
+  const direct = {};
   let uncategorizedSpending = 0;
-  for (const cat of categories) catSpending[cat.id] = 0;
+  for (const cat of categories) direct[cat.id] = 0;
   for (const t of transactions) {
-    if (t.amount >= 0) continue; // skip income
+    if (t.amount >= 0) continue;
     const amt = Math.abs(t.amount);
-    if (t.categoryId && catSpending[t.categoryId] !== undefined) {
-      catSpending[t.categoryId] += amt;
+    if (t.categoryId && direct[t.categoryId] !== undefined) {
+      direct[t.categoryId] += amt;
     } else {
       uncategorizedSpending += amt;
     }
   }
 
-  const totalSpent = Object.values(catSpending).reduce((s, v) => s + v, 0) + uncategorizedSpending;
-  const totalBudgeted = categories.reduce((s, c) => s + (c.targetAmount || 0), 0);
-  const maxSpending = Math.max(...Object.values(catSpending), uncategorizedSpending, 1);
+  const totals = { ...direct };
+  for (const [catId, spent] of Object.entries(direct)) {
+    if (spent === 0) continue;
+    let cat = catById[catId];
+    while (cat && cat.parentId) {
+      totals[cat.parentId] = (totals[cat.parentId] || 0) + spent;
+      cat = catById[cat.parentId];
+    }
+  }
+
+  const tree = buildCategoryTree(categories);
+  const flat = flattenCategoryTree(tree);
+
+  const maxSpending = Math.max(...flat.map(({ cat }) => totals[cat.id] || 0), uncategorizedSpending, 1);
+
+  const totalBudgeted = categories
+    .filter(c => !c.parentId)
+    .reduce((s, c) => s + (c.targetAmount || 0), 0);
+
+  const totalSpent = Object.values(direct).reduce((s, v) => s + v, 0) + uncategorizedSpending;
 
   const uncatCount = transactions.filter(t => !t.categoryId).length;
 
@@ -117,16 +135,15 @@ export function MoneyHome({ budgetId }) {
       `}
 
       ${transactions.length > 0 && html`
-        <!-- Category Spending Chart -->
         <div class="spending-chart">
           <h3>Spending by Category</h3>
-          ${categories.map(cat => {
-            const spent = catSpending[cat.id] || 0;
+          ${flat.map(({ cat, depth }) => {
+            const spent = totals[cat.id] || 0;
             if (spent === 0) return null;
             const pct = (spent / maxSpending) * 100;
             return html`
               <div class="spending-row" key=${cat.id}>
-                <div class="spending-label">
+                <div class="spending-label" style=${{ paddingLeft: `${depth * 1.2}rem` }}>
                   <span class="spending-dot" style=${{ background: cat.color }}></span>
                   <span class="spending-name">${cat.name}</span>
                 </div>
@@ -151,17 +168,17 @@ export function MoneyHome({ budgetId }) {
           `}
         </div>
 
-        <!-- Budget vs Actual -->
         <div class="budget-vs-actual">
           <h3>Budget vs Actual</h3>
-          ${categories.map(cat => {
-            const actual = catSpending[cat.id] || 0;
+          ${flat.map(({ cat, depth }) => {
+            const actual = totals[cat.id] || 0;
             const target = cat.targetAmount || 0;
-            const pct = target > 0 ? Math.min((actual / target) * 100, 150) : 0;
-            const over = target > 0 && actual > target;
+            if (target <= 0) return null;
+            const pct = Math.min((actual / target) * 100, 150);
+            const over = actual > target;
             return html`
               <div class="bva-row" key=${cat.id}>
-                <div class="bva-label">
+                <div class="bva-label" style=${{ paddingLeft: `${depth * 1.2}rem` }}>
                   <span class="bva-dot" style=${{ background: cat.color }}></span>
                   <span class="bva-name">${cat.name}</span>
                 </div>
@@ -199,7 +216,6 @@ export function MoneyHome({ budgetId }) {
         </div>
       `}
 
-      <!-- Quick actions -->
       <div class="budget-actions">
         <button class="btn" onClick=${() => navigate('/budget/' + budgetId + '/import')}>Import</button>
         <button class="btn btn-secondary" onClick=${() => navigate('/budget/' + budgetId + '/transactions')}>Transactions</button>
