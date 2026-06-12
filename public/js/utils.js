@@ -211,6 +211,33 @@ export function parseOFXDate(dtposted) {
   return `${dtposted.slice(0, 4)}-${dtposted.slice(4, 6)}-${dtposted.slice(6, 8)}`;
 }
 
+// --- People utilities ---
+
+// Person.tag holds a comma-separated tag list ("friend, gym")
+export function parseTags(tagStr) {
+  return (tagStr || '').split(',').map(t => t.trim()).filter(Boolean);
+}
+
+// A note is expired once its expiresAt date has passed (visible through that day)
+export function isNoteExpired(note, todayStr = today()) {
+  return !!note.expiresAt && note.expiresAt < todayStr;
+}
+
+// Days from today until a reminder fires; repeatYearly uses the next occurrence
+// of the month/day. Negative = already passed (non-repeating only).
+export function daysUntilReminder(remindOn, repeatYearly) {
+  const todayDate = new Date();
+  todayDate.setHours(0, 0, 0, 0);
+  let target = parseDate(remindOn);
+  if (repeatYearly) {
+    target = new Date(todayDate.getFullYear(), target.getMonth(), target.getDate());
+    if (target < todayDate) {
+      target = new Date(todayDate.getFullYear() + 1, target.getMonth(), target.getDate());
+    }
+  }
+  return Math.round((target - todayDate) / MS_PER_DAY);
+}
+
 // --- Category tree utilities ---
 
 // Build an n-level tree from a flat category list.

@@ -30,6 +30,8 @@ export async function sync() {
     const dirtyEvents = await db.getDirtyEvents();
     const dirtyOverrides = await db.getDirtyOverrides();
     const dirtyTransactions = await db.getDirtyTransactions();
+    const dirtyPeople = await db.getDirtyPeople();
+    const dirtyPersonNotes = await db.getDirtyPersonNotes();
 
     const payload = {
       lastSyncAt,
@@ -39,6 +41,8 @@ export async function sync() {
       events: dirtyEvents.map(db.cleanRecord),
       periodOverrides: dirtyOverrides.map(db.cleanRecord),
       transactions: dirtyTransactions.map(db.cleanRecord),
+      people: dirtyPeople.map(db.cleanRecord),
+      personNotes: dirtyPersonNotes.map(db.cleanRecord),
     };
 
     const result = await api.sync(payload);
@@ -52,6 +56,8 @@ export async function sync() {
     for (const r of result.events || []) await db.putEventClean(r);
     for (const r of result.periodOverrides || []) await db.putOverrideClean(r);
     for (const r of result.transactions || []) await db.putTransactionClean(r);
+    for (const r of result.people || []) await db.putPersonClean(r);
+    for (const r of result.personNotes || []) await db.putPersonNoteClean(r);
 
     await db.setMeta('lastSyncAt', result.syncedAt);
     notify('synced');
@@ -84,6 +90,8 @@ export function startSyncLoop() {
       ...(await db.getDirtyEvents()),
       ...(await db.getDirtyOverrides()),
       ...(await db.getDirtyTransactions()),
+      ...(await db.getDirtyPeople()),
+      ...(await db.getDirtyPersonNotes()),
     ];
     if (dirty.length > 0) sync().catch(() => {});
   }, 30000);

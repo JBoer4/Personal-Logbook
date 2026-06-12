@@ -59,6 +59,11 @@ Every mutation must sync across all devices on the network (PC browser, phone br
 - `moneyCategories`: `{id, name, targetAmount, order}`
 - `transactions`: `{id, date, amount, description, categoryId, source}`
 
+**People log:**
+- People lists are `budgets` rows with `type: 'people'` (`periodType: 'none'`) — multiple lists allowed (e.g. Personal / Business), each a dashboard tile. Routes: `/budget/:id` (list), `/budget/:id/person/:personId` (detail).
+- `people`: `{id, budgetId, name, tag}` — `budgetId` points at the owning people-list; `tag` holds a comma-separated tag list ("friend, gym"); parse with `parseTags()` in utils.js. People home filters by tag chips.
+- `personNotes` (SQLite: `person_notes`): `{id, personId, text, pinned, expiresAt, remindOn, repeatYearly}` — pinned notes show only in "Key facts" (not the timeline); notes past `expiresAt` collapse into an "Expired" section; `remindOn` (+ optional yearly repeat) surfaces a banner on the dashboard within 7 days. Timeline ordering always uses `createdAt`, never `updatedAt`.
+
 Period is currently hardcoded to weekly for time, monthly for money.
 
 ## Sensitive / Local Files (gitignored)

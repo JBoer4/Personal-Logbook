@@ -13,6 +13,8 @@ import { MoneyHome } from './components/MoneyHome.js';
 import { MoneyCategories } from './components/MoneyCategories.js';
 import { Transactions } from './components/Transactions.js';
 import { ImportOFX } from './components/ImportOFX.js';
+import { People } from './components/People.js';
+import { PersonDetail } from './components/PersonDetail.js';
 
 // Wrapper that loads budget and routes to time or money component
 function BudgetRouter({ budgetId, view: viewName }) {
@@ -28,6 +30,9 @@ function BudgetRouter({ budgetId, view: viewName }) {
 
   const isMoney = budget.type === 'money';
 
+  if (budget.type === 'people') {
+    return html`<${People} budgetId=${budgetId} />`;
+  }
   if (viewName === 'home') {
     return isMoney
       ? html`<${MoneyHome} budgetId=${budgetId} />`
@@ -60,7 +65,9 @@ function App() {
   let params;
   let view;
 
-  if ((params = match('/budget/:id/log/:date'))) {
+  if ((params = match('/budget/:id/person/:personId'))) {
+    view = html`<${PersonDetail} budgetId=${params.id} personId=${params.personId} />`;
+  } else if ((params = match('/budget/:id/log/:date'))) {
     view = html`<${DailyLog} budgetId=${params.id} date=${params.date} />`;
   } else if ((params = match('/budget/:id/log'))) {
     view = html`<${DailyLog} budgetId=${params.id} />`;
@@ -81,12 +88,13 @@ function App() {
   const isHome = !match('/budget/:id') && !match('/budget/:id/log') &&
     !match('/budget/:id/log/:date') && !match('/budget/:id/categories') &&
     !match('/budget/:id/history') && !match('/budget/:id/transactions') &&
-    !match('/budget/:id/import');
+    !match('/budget/:id/import') && !match('/budget/:id/person/:personId');
 
   // Extract budgetId for back navigation
   const budgetMatch = match('/budget/:id/log') || match('/budget/:id/log/:date') ||
     match('/budget/:id/categories') || match('/budget/:id/history') ||
-    match('/budget/:id/transactions') || match('/budget/:id/import');
+    match('/budget/:id/transactions') || match('/budget/:id/import') ||
+    match('/budget/:id/person/:personId');
 
   return html`
     <div class="app-shell">

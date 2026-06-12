@@ -2,8 +2,8 @@
 // Uses soft deletes (deleted flag) so deletions propagate via sync.
 
 const DB_NAME = 'budget-app';
-const DB_VERSION = 4;
-const STORES = ['budgets', 'categories', 'entries', 'periodOverrides', 'transactions', 'events', 'meta'];
+const DB_VERSION = 5;
+const STORES = ['budgets', 'categories', 'entries', 'periodOverrides', 'transactions', 'events', 'people', 'personNotes', 'meta'];
 
 let dbInstance = null;
 
@@ -36,10 +36,16 @@ function openDB() {
             store.createIndex('budgetId', 'budgetId');
             store.createIndex('date', 'date');
           }
+          if (name === 'personNotes') store.createIndex('personId', 'personId');
         }
       }
     };
-    req.onsuccess = () => { dbInstance = req.result; resolve(dbInstance); };
+    req.onsuccess = () => {
+      dbInstance = req.result;
+      // Don't block version upgrades from other tabs after a deploy
+      dbInstance.onversionchange = () => { dbInstance.close(); dbInstance = null; };
+      resolve(dbInstance);
+    };
     req.onerror = () => reject(req.error);
   });
 }
@@ -179,6 +185,20 @@ export const db = {
   putEventClean: (record) => putClean('events', record),
   deleteEvent: (id, ts) => softDelete('events', id, ts),
 
+  // People
+  getPeople: () => getAll('people'),
+  getPerson: (id) => getById('people', id),
+  putPerson: (record) => put('people', record),
+  putPersonClean: (record) => putClean('people', record),
+  deletePerson: (id, ts) => softDelete('people', id, ts),
+
+  // Person Notes
+  getPersonNotes: (personId) => getAllByIndex('personNotes', 'personId', personId),
+  getAllPersonNotes: () => getAll('personNotes'),
+  putPersonNote: (record) => put('personNotes', record),
+  putPersonNoteClean: (record) => putClean('personNotes', record),
+  deletePersonNote: (id, ts) => softDelete('personNotes', id, ts),
+
   // Meta
   getMeta,
   setMeta,
@@ -190,5 +210,7 @@ export const db = {
   getDirtyOverrides: () => getDirty('periodOverrides'),
   getDirtyTransactions: () => getDirty('transactions'),
   getDirtyEvents: () => getDirty('events'),
+  getDirtyPeople: () => getDirty('people'),
+  getDirtyPersonNotes: () => getDirty('personNotes'),
   cleanRecord,
 };

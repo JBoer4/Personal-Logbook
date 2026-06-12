@@ -118,6 +118,32 @@ db.exec(`
 
   CREATE INDEX IF NOT EXISTS idx_events_budget ON events(budgetId);
   CREATE INDEX IF NOT EXISTS idx_events_date ON events(date);
+
+  CREATE TABLE IF NOT EXISTS people (
+    id TEXT PRIMARY KEY,
+    budgetId TEXT,
+    name TEXT NOT NULL,
+    tag TEXT,
+    deleted INTEGER NOT NULL DEFAULT 0,
+    createdAt INTEGER NOT NULL,
+    updatedAt INTEGER NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS person_notes (
+    id TEXT PRIMARY KEY,
+    personId TEXT NOT NULL,
+    text TEXT NOT NULL,
+    pinned INTEGER NOT NULL DEFAULT 0,
+    expiresAt TEXT,
+    remindOn TEXT,
+    repeatYearly INTEGER NOT NULL DEFAULT 0,
+    deleted INTEGER NOT NULL DEFAULT 0,
+    createdAt INTEGER NOT NULL,
+    updatedAt INTEGER NOT NULL,
+    FOREIGN KEY (personId) REFERENCES people(id) ON DELETE CASCADE
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_person_notes_person ON person_notes(personId);
 `);
 
 // Migrate: add deleted column to existing tables if missing
@@ -183,6 +209,40 @@ for (const table of tables) {
   const cols = db.prepare('PRAGMA table_info(transactions)').all();
   if (!cols.find(c => c.name === 'transferId')) {
     db.exec('ALTER TABLE transactions ADD COLUMN transferId TEXT');
+  }
+}
+
+// Migrate: people belong to a people-list (budgets row with type 'people').
+// Adds the column and adopts any orphan people into a default list.
+{
+  const cols = db.prepare('PRAGMA table_info(people)').all();
+  if (!cols.find(c => c.name === 'budgetId')) {
+    db.exec('ALTER TABLE people ADD COLUMN budgetId TEXT');
+  }
+  const orphans = db.prepare('SELECT COUNT(*) c FROM people WHERE budgetId IS NULL AND deleted = 0').get().c;
+  if (orphans > 0) {
+    const ts = Date.now();
+    let list = db.prepare("SELECT id FROM budgets WHERE type = 'people' AND deleted = 0 ORDER BY createdAt LIMIT 1").get();
+    if (!list) {
+      list = { id: require('crypto').randomUUID() };
+      db.prepare('INSERT INTO budgets (id, name, type, periodType, periodStartDay, deleted, createdAt, updatedAt) VALUES (?, ?, ?, ?, 0, 0, ?, ?)')
+        .run(list.id, 'People', 'people', 'none', ts, ts);
+    }
+    db.prepare('UPDATE people SET budgetId = ?, updatedAt = ? WHERE budgetId IS NULL AND deleted = 0').run(list.id, ts);
+  }
+}
+
+// Migrate: add date fields to person_notes
+{
+  const cols = db.prepare('PRAGMA table_info(person_notes)').all();
+  if (!cols.find(c => c.name === 'expiresAt')) {
+    db.exec('ALTER TABLE person_notes ADD COLUMN expiresAt TEXT');
+  }
+  if (!cols.find(c => c.name === 'remindOn')) {
+    db.exec('ALTER TABLE person_notes ADD COLUMN remindOn TEXT');
+  }
+  if (!cols.find(c => c.name === 'repeatYearly')) {
+    db.exec('ALTER TABLE person_notes ADD COLUMN repeatYearly INTEGER NOT NULL DEFAULT 0');
   }
 }
 
@@ -438,12 +498,17 @@ app.post('/api/budgets/:id/transactions/batch', (req, res) => {
 
 const OVERRIDE_COLS = ['id', 'budgetId', 'categoryId', 'periodStart', 'targetHours', 'minHours', 'maxHours', 'deleted', 'createdAt', 'updatedAt'];
 
+// --- People ---
+
+const PEOPLE_COLS = ['id', 'budgetId', 'name', 'tag', 'deleted', 'createdAt', 'updatedAt'];
+const PERSON_NOTE_COLS = ['id', 'personId', 'text', 'pinned', 'expiresAt', 'remindOn', 'repeatYearly', 'deleted', 'createdAt', 'updatedAt'];
+
 // --- Sync endpoint ---
 // Returns ALL records changed since lastSyncAt, including soft-deleted ones.
 // This is how deletions propagate to other devices.
 
 app.post('/api/sync', (req, res) => {
-  const { lastSyncAt = 0, budgets: cBudgets = [], categories: cCategories = [], entries: cEntries = [], events: cEvents = [], periodOverrides: cOverrides = [], transactions: cTransactions = [] } = req.body;
+  const { lastSyncAt = 0, budgets: cBudgets = [], categories: cCategories = [], entries: cEntries = [], events: cEvents = [], periodOverrides: cOverrides = [], transactions: cTransactions = [], people: cPeople = [], personNotes: cPersonNotes = [] } = req.body;
   const now = Date.now();
 
   const syncTransaction = db.transaction(() => {
@@ -454,6 +519,9 @@ app.post('/api/sync', (req, res) => {
     for (const r of cEvents) upsertRow('events', serializeEvent({ deleted: 0, ...r }), EVENT_COLS);
     for (const r of cOverrides) upsertRow('period_overrides', { deleted: 0, ...r }, OVERRIDE_COLS);
     for (const r of cTransactions) upsertRow('transactions', { deleted: 0, ...r }, TRANSACTION_COLS);
+    // People before notes: person_notes has an FK to people
+    for (const r of cPeople) upsertRow('people', { budgetId: null, tag: null, deleted: 0, ...r }, PEOPLE_COLS);
+    for (const r of cPersonNotes) upsertRow('person_notes', { pinned: 0, expiresAt: null, remindOn: null, repeatYearly: 0, deleted: 0, ...r }, PERSON_NOTE_COLS);
 
     // Return ALL server records changed since lastSyncAt (including deleted)
     const sBudgets = db.prepare('SELECT * FROM budgets WHERE updatedAt > ?').all(lastSyncAt);
@@ -462,8 +530,10 @@ app.post('/api/sync', (req, res) => {
     const sEvents = db.prepare('SELECT * FROM events WHERE updatedAt > ?').all(lastSyncAt).map(deserializeEvent);
     const sOverrides = db.prepare('SELECT * FROM period_overrides WHERE updatedAt > ?').all(lastSyncAt);
     const sTransactions = db.prepare('SELECT * FROM transactions WHERE updatedAt > ?').all(lastSyncAt);
+    const sPeople = db.prepare('SELECT * FROM people WHERE updatedAt > ?').all(lastSyncAt);
+    const sPersonNotes = db.prepare('SELECT * FROM person_notes WHERE updatedAt > ?').all(lastSyncAt);
 
-    return { budgets: sBudgets, categories: sCategories, entries: sEntries, events: sEvents, periodOverrides: sOverrides, transactions: sTransactions, syncedAt: now };
+    return { budgets: sBudgets, categories: sCategories, entries: sEntries, events: sEvents, periodOverrides: sOverrides, transactions: sTransactions, people: sPeople, personNotes: sPersonNotes, syncedAt: now };
   });
 
   res.json(syncTransaction());
