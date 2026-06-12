@@ -374,6 +374,61 @@ html, body {
   border-top: 1px solid var(--border);
 }
 
+.bva-rollover {
+  font-size: 0.72rem;
+  color: var(--text-dim);
+  margin-left: 4px;
+  white-space: nowrap;
+}
+
+/* Income section */
+.income-section {
+  margin-bottom: 20px;
+}
+
+.income-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px 0;
+  font-size: 0.9rem;
+}
+
+.income-name {
+  color: var(--text);
+}
+
+.income-amount {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.income-total {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
+}
+
+/* Net position */
+.net-position {
+  margin-top: 16px;
+  padding: 10px 14px;
+  border-radius: 6px;
+  font-size: 1rem;
+  font-weight: 600;
+  text-align: right;
+}
+
+.net-positive {
+  background: rgba(34, 197, 94, 0.12);
+  color: #22c55e;
+}
+
+.net-negative {
+  background: rgba(239, 68, 68, 0.12);
+  color: #ef4444;
+}
+
 .bva-header {
   display: flex;
   align-items: center;
@@ -1605,6 +1660,84 @@ input:focus {
 
 .cat-amount-input {
   width: 64px;
+}
+
+/* --- Transfer form --- */
+
+.transfer-form {
+  margin-top: 12px;
+  padding: 14px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.transfer-form select,
+.transfer-form input[type="number"],
+.transfer-form input[type="date"] {
+  width: 100%;
+  padding: 6px 8px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  font-size: 0.9rem;
+}
+
+.transfer-form label {
+  font-size: 0.82rem;
+  color: var(--text-dim);
+  margin-bottom: 2px;
+  display: block;
+}
+
+.transfer-form-row {
+  display: flex;
+  gap: 8px;
+}
+
+.transfer-form-field {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.transfer-form-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+/* --- Transfers list --- */
+
+.transfers-section {
+  margin-top: 16px;
+}
+
+.transfers-section h3 {
+  font-size: 0.95rem;
+  color: var(--text-dim);
+  margin-bottom: 6px;
+}
+
+.transfer-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.88rem;
+  padding: 3px 0;
+  color: var(--text-dim);
+}
+
+/* --- Unallocated row in Balances --- */
+
+.bva-unallocated {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+  font-style: italic;
 }
 
 /* --- Uncategorized Notice --- */

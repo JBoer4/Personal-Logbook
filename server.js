@@ -170,6 +170,22 @@ for (const table of tables) {
   }
 }
 
+// Migrate: add rollover to categories
+{
+  const cols = db.prepare('PRAGMA table_info(categories)').all();
+  if (!cols.find(c => c.name === 'rollover')) {
+    db.exec('ALTER TABLE categories ADD COLUMN rollover INTEGER NOT NULL DEFAULT 0');
+  }
+}
+
+// Migrate: add transferId to transactions
+{
+  const cols = db.prepare('PRAGMA table_info(transactions)').all();
+  if (!cols.find(c => c.name === 'transferId')) {
+    db.exec('ALTER TABLE transactions ADD COLUMN transferId TEXT');
+  }
+}
+
 // --- Event category serialization ---
 // categories is stored as JSON string in SQLite, but sent/received as an array over HTTP
 
@@ -240,7 +256,7 @@ app.delete('/api/budgets/:id', (req, res) => {
 
 // --- Categories ---
 
-const CATEGORY_COLS = ['id', 'budgetId', 'parentId', 'name', 'color', 'targetHours', 'targetAmount', 'minHours', 'maxHours', 'sortOrder', 'deleted', 'createdAt', 'updatedAt'];
+const CATEGORY_COLS = ['id', 'budgetId', 'parentId', 'name', 'color', 'targetHours', 'targetAmount', 'minHours', 'maxHours', 'sortOrder', 'rollover', 'deleted', 'createdAt', 'updatedAt'];
 
 app.get('/api/budgets/:id/categories', (req, res) => {
   res.json(db.prepare('SELECT * FROM categories WHERE budgetId = ? AND deleted = 0 ORDER BY sortOrder').all(req.params.id));
@@ -330,7 +346,7 @@ app.delete('/api/events/:id', (req, res) => {
 
 // --- Transactions ---
 
-const TRANSACTION_COLS = ['id', 'budgetId', 'categoryId', 'date', 'amount', 'payee', 'memo', 'fitid', 'trntype', 'deleted', 'createdAt', 'updatedAt'];
+const TRANSACTION_COLS = ['id', 'budgetId', 'categoryId', 'date', 'amount', 'payee', 'memo', 'fitid', 'trntype', 'transferId', 'deleted', 'createdAt', 'updatedAt'];
 
 app.get('/api/budgets/:id/transactions', (req, res) => {
   const { from, to } = req.query;
@@ -433,7 +449,7 @@ app.post('/api/sync', (req, res) => {
   const syncTransaction = db.transaction(() => {
     // Upsert client records (including soft-deleted ones)
     for (const r of cBudgets) upsertRow('budgets', { deleted: 0, ...r }, BUDGET_COLS);
-    for (const r of cCategories) upsertRow('categories', { targetHours: 0, deleted: 0, ...r }, CATEGORY_COLS);
+    for (const r of cCategories) upsertRow('categories', { targetHours: 0, deleted: 0, rollover: 0, ...r }, CATEGORY_COLS);
     for (const r of cEntries) upsertRow('entries', { deleted: 0, ...r }, ENTRY_COLS);
     for (const r of cEvents) upsertRow('events', serializeEvent({ deleted: 0, ...r }), EVENT_COLS);
     for (const r of cOverrides) upsertRow('period_overrides', { deleted: 0, ...r }, OVERRIDE_COLS);

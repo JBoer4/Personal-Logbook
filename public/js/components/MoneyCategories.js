@@ -144,6 +144,13 @@ export function MoneyCategories({ budgetId }) {
                     min="0" step="1"
                     onInput=${(e) => updateCat(cat.id, 'targetAmount', parseFloat(e.target.value) || 0)} />
                 </div>
+                ${depth === 0 && html`
+                  <label style="display:flex;align-items:center;gap:0.25rem;font-size:0.85rem;white-space:nowrap">
+                    <input type="checkbox" checked=${!!cat.rollover}
+                      onChange=${(e) => updateCat(cat.id, 'rollover', e.target.checked ? 1 : 0)} />
+                    Rollover
+                  </label>
+                `}
                 <div class="cat-actions">
                   <button class="cat-move" title="Move up" onClick=${() => moveCat(cat.id, -1)} disabled=${siblingIndex === 0}>↑</button>
                   <button class="cat-move" title="Move down" onClick=${() => moveCat(cat.id, 1)} disabled=${siblingIndex === siblingCount - 1}>↓</button>
