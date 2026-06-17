@@ -1,8 +1,8 @@
-import { useState, useEffect, useRef } from 'preact/hooks';
+import { useState, useEffect } from 'preact/hooks';
 import { html } from 'htm/preact';
 import { db } from '../db.js';
 import { navigate } from '../router.js';
-import { syncAfterMutation } from '../sync.js';
+import { syncAfterMutation, debouncedSync } from '../sync.js';
 import { uuid, now, today, getMonthLabel, getMonthDates, formatCurrency } from '../utils.js';
 
 export function Transactions({ budgetId }) {
@@ -16,7 +16,6 @@ export function Transactions({ budgetId }) {
   const [addAmount, setAddAmount] = useState('');
   const [addDate, setAddDate] = useState(today());
   const [addCategory, setAddCategory] = useState('');
-  const saveTimer = useRef(null);
 
   const monthDate = new Date();
   monthDate.setMonth(monthDate.getMonth() + monthOffset);
@@ -37,18 +36,13 @@ export function Transactions({ budgetId }) {
 
   useEffect(() => { setLoading(true); load(); }, [budgetId, monthOffset]);
 
-  function scheduleSync() {
-    clearTimeout(saveTimer.current);
-    saveTimer.current = setTimeout(() => syncAfterMutation(), 500);
-  }
-
   async function setCategoryForTxn(txnId, categoryId) {
     const txn = transactions.find(t => t.id === txnId);
     if (!txn) return;
     const updated = { ...txn, categoryId: categoryId || null, updatedAt: now() };
     await db.putTransaction(updated);
     setTransactions(prev => prev.map(t => t.id === txnId ? updated : t));
-    scheduleSync();
+    debouncedSync();
   }
 
   async function addTransaction() {

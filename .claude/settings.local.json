@@ -1,7 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "Bash(cd C:\\\\Users\\\\Johan\\\\Document\\\\dev\\\\personal-logbook:*)"
-    ]
-  }
-}

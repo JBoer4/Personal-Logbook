@@ -42,7 +42,6 @@ async function seedBudget() {
       budgetId: budget.id,
       name: cat.name,
       color: cat.color,
-      targetHours: 0,
       minHours: cat.minHours ?? null,
       maxHours: cat.maxHours ?? null,
       sortOrder: i,

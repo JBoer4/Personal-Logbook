@@ -110,12 +110,6 @@ async function softDelete(storeName, id, updatedAt) {
   return promisify(store.put({ ...existing, deleted: 1, updatedAt, _dirty: 1 }));
 }
 
-// Hard remove (only used internally after sync confirms deletion)
-async function hardRemove(storeName, id) {
-  const store = await tx(storeName, 'readwrite');
-  return promisify(store.delete(id));
-}
-
 // --- Meta (lastSyncAt, etc) ---
 
 async function getMeta(key) {
@@ -154,15 +148,12 @@ export const db = {
 
   // Categories
   getCategories: (budgetId) => getAllByIndex('categories', 'budgetId', budgetId),
-  getCategory: (id) => getById('categories', id),
   putCategory: (record) => put('categories', record),
   putCategoryClean: (record) => putClean('categories', record),
   deleteCategory: (id, ts) => softDelete('categories', id, ts),
 
-  // Entries
+  // Entries (legacy model — kept so old data still syncs)
   getEntries: (budgetId) => getAllByIndex('entries', 'budgetId', budgetId),
-  getEntry: (id) => getById('entries', id),
-  putEntry: (record) => put('entries', record),
   putEntryClean: (record) => putClean('entries', record),
   deleteEntry: (id, ts) => softDelete('entries', id, ts),
 
@@ -170,17 +161,16 @@ export const db = {
   getOverrides: (budgetId) => getAllByIndex('periodOverrides', 'budgetId', budgetId),
   putOverride: (record) => put('periodOverrides', record),
   putOverrideClean: (record) => putClean('periodOverrides', record),
+  deleteOverride: (id, ts) => softDelete('periodOverrides', id, ts),
 
   // Transactions
   getTransactions: (budgetId) => getAllByIndex('transactions', 'budgetId', budgetId),
-  getTransaction: (id) => getById('transactions', id),
   putTransaction: (record) => put('transactions', record),
   putTransactionClean: (record) => putClean('transactions', record),
   deleteTransaction: (id, ts) => softDelete('transactions', id, ts),
 
   // Events
   getEvents: (budgetId) => getAllByIndex('events', 'budgetId', budgetId),
-  getEvent: (id) => getById('events', id),
   putEvent: (record) => put('events', record),
   putEventClean: (record) => putClean('events', record),
   deleteEvent: (id, ts) => softDelete('events', id, ts),

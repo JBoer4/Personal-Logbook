@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'preact/hooks';
 import { html } from 'htm/preact';
 import { db } from '../db.js';
 import { navigate } from '../router.js';
-import { syncAfterMutation } from '../sync.js';
+import { syncAfterMutation, debouncedSync } from '../sync.js';
 import { uuid, now, formatShort, parseDate, parseTags, isNoteExpired, today } from '../utils.js';
 
 function formatNoteDate(ts) {
@@ -26,7 +26,6 @@ export function PersonDetail({ budgetId, personId }) {
   const [showExpired, setShowExpired] = useState(false);
   const nameRef = useRef(null);
   const tagRef = useRef(null);
-  const syncTimer = useRef(null);
 
   async function load() {
     const [p, ns] = await Promise.all([db.getPerson(personId), db.getPersonNotes(personId)]);
@@ -38,17 +37,11 @@ export function PersonDetail({ budgetId, personId }) {
 
   useEffect(() => { setLoading(true); load(); }, [personId]);
 
-  function scheduleSync() {
-    clearTimeout(syncTimer.current);
-    syncTimer.current = setTimeout(() => syncAfterMutation(), 500);
-  }
-
   async function savePerson(updates) {
     const updated = { ...person, ...updates, updatedAt: now() };
-    delete updated._dirty;
     await db.putPerson(updated);
     setPerson(updated);
-    scheduleSync();
+    debouncedSync();
   }
 
   function renamePerson(newName) {
@@ -77,10 +70,9 @@ export function PersonDetail({ budgetId, personId }) {
 
   async function saveNote(note, updates) {
     const updated = { ...note, ...updates, updatedAt: now() };
-    delete updated._dirty;
     await db.putPersonNote(updated);
     setNotes(notes.map(n => n.id === note.id ? updated : n));
-    scheduleSync();
+    debouncedSync();
   }
 
   function togglePin(note) {

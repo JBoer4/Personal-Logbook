@@ -5,3 +5,7 @@ server-data/
 *.crt
 .env
 .DS_Store
+
+# Claude Code / agent files
+.claude/
+CLAUDE.md

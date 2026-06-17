@@ -38,8 +38,15 @@ export function ImportOFX({ budgetId }) {
     setError(null);
 
     try {
+      // Skip transactions already imported (banks resend overlapping
+      // statements; FITID uniquely identifies a transaction within an account)
+      const existing = await db.getTransactions(budgetId);
+      const existingFitids = new Set(existing.map(t => t.fitid).filter(Boolean));
+      const fresh = parsed.filter(t => !t.fitid || !existingFitids.has(t.fitid));
+      const skipped = parsed.length - fresh.length;
+
       const ts = now();
-      const records = parsed.map(t => ({
+      const records = fresh.map(t => ({
         id: uuid(),
         budgetId,
         categoryId: null,
@@ -53,16 +60,18 @@ export function ImportOFX({ budgetId }) {
         updatedAt: ts,
       }));
 
-      // Save to server via batch endpoint
-      await api.batchCreateTransactions(budgetId, records);
+      if (records.length > 0) {
+        // Save to server via batch endpoint
+        await api.batchCreateTransactions(budgetId, records);
 
-      // Also save to local IndexedDB for offline access
-      for (const r of records) {
-        await db.putTransactionClean(r);
+        // Also save to local IndexedDB for offline access
+        for (const r of records) {
+          await db.putTransactionClean(r);
+        }
+        syncAfterMutation();
       }
 
-      syncAfterMutation();
-      setResult({ count: records.length });
+      setResult({ count: records.length, skipped });
     } catch (err) {
       setError('Import failed: ' + err.message);
     } finally {
@@ -75,7 +84,7 @@ export function ImportOFX({ budgetId }) {
       <div class="import-view">
         <h2>Import Complete</h2>
         <div class="import-result">
-          <p>${result.count} transactions imported</p>
+          <p>${result.count} transactions imported${result.skipped > 0 ? `, ${result.skipped} skipped (already imported)` : ''}</p>
           <button class="btn" onClick=${() => navigate('/budget/' + budgetId + '/transactions')}>
             View Transactions
           </button>

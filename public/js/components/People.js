@@ -49,7 +49,6 @@ export function People({ budgetId }) {
     setEditingTitle(false);
     if (!list || !newName.trim() || newName.trim() === list.name) return;
     const updated = { ...list, name: newName.trim(), updatedAt: now() };
-    delete updated._dirty;
     await db.putBudget(updated);
     setList(updated);
     syncAfterMutation();

@@ -74,15 +74,21 @@ export function syncAfterMutation() {
   sync().catch(() => {});
 }
 
-// Retry loop
-let retryInterval = null;
+// Debounced variant for rapid-fire edits (typing in inputs, etc.)
+let debounceTimer = null;
 
+export function debouncedSync(delay = 500) {
+  clearTimeout(debounceTimer);
+  debounceTimer = setTimeout(() => syncAfterMutation(), delay);
+}
+
+// Retry loop
 export function startSyncLoop() {
   // Initial sync
   sync().catch(() => {});
 
   // Retry every 30s if there are dirty records
-  retryInterval = setInterval(async () => {
+  setInterval(async () => {
     const dirty = [
       ...(await db.getDirtyBudgets()),
       ...(await db.getDirtyCategories()),
@@ -98,8 +104,4 @@ export function startSyncLoop() {
 
   // Sync when coming back online
   window.addEventListener('online', () => sync().catch(() => {}));
-}
-
-export function stopSyncLoop() {
-  if (retryInterval) clearInterval(retryInterval);
 }

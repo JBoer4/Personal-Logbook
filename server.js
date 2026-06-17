@@ -146,79 +146,38 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_person_notes_person ON person_notes(personId);
 `);
 
-// Migrate: add deleted column to existing tables if missing
-const tables = ['budgets', 'categories', 'entries', 'period_overrides'];
-for (const table of tables) {
+// Add a column to an existing table if missing. Returns true when added.
+function addColumnIfMissing(table, column, ddl) {
   const cols = db.prepare(`PRAGMA table_info(${table})`).all();
-  if (!cols.find(c => c.name === 'deleted')) {
-    db.exec(`ALTER TABLE ${table} ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0`);
-  }
+  if (cols.find(c => c.name === column)) return false;
+  db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${ddl}`);
+  return true;
 }
 
-// Migrate: add parentId to categories if missing
-{
-  const cols = db.prepare('PRAGMA table_info(categories)').all();
-  if (!cols.find(c => c.name === 'parentId')) {
-    db.exec('ALTER TABLE categories ADD COLUMN parentId TEXT');
-  }
+for (const table of ['budgets', 'categories', 'entries', 'period_overrides']) {
+  addColumnIfMissing(table, 'deleted', 'INTEGER NOT NULL DEFAULT 0');
 }
+addColumnIfMissing('categories', 'parentId', 'TEXT');
+addColumnIfMissing('categories', 'minHours', 'REAL');
+addColumnIfMissing('categories', 'maxHours', 'REAL');
+addColumnIfMissing('period_overrides', 'minHours', 'REAL');
+addColumnIfMissing('period_overrides', 'maxHours', 'REAL');
+addColumnIfMissing('categories', 'rollover', 'INTEGER NOT NULL DEFAULT 0');
+addColumnIfMissing('transactions', 'transferId', 'TEXT');
+addColumnIfMissing('person_notes', 'expiresAt', 'TEXT');
+addColumnIfMissing('person_notes', 'remindOn', 'TEXT');
+addColumnIfMissing('person_notes', 'repeatYearly', 'INTEGER NOT NULL DEFAULT 0');
 
-// Migrate: add minHours, maxHours to categories if missing
-{
-  const cols = db.prepare('PRAGMA table_info(categories)').all();
-  if (!cols.find(c => c.name === 'minHours')) {
-    db.exec('ALTER TABLE categories ADD COLUMN minHours REAL');
-  }
-  if (!cols.find(c => c.name === 'maxHours')) {
-    db.exec('ALTER TABLE categories ADD COLUMN maxHours REAL');
-  }
-}
-
-// Migrate: add minHours, maxHours to period_overrides if missing
-{
-  const cols = db.prepare('PRAGMA table_info(period_overrides)').all();
-  if (!cols.find(c => c.name === 'minHours')) {
-    db.exec('ALTER TABLE period_overrides ADD COLUMN minHours REAL');
-  }
-  if (!cols.find(c => c.name === 'maxHours')) {
-    db.exec('ALTER TABLE period_overrides ADD COLUMN maxHours REAL');
-  }
-}
-
-// Migrate: add targetAmount to categories (replaces targetHours for money budgets)
-{
-  const cols = db.prepare('PRAGMA table_info(categories)').all();
-  if (!cols.find(c => c.name === 'targetAmount')) {
-    db.exec('ALTER TABLE categories ADD COLUMN targetAmount REAL');
-    // Copy targetHours into targetAmount for money budget categories
-    db.exec(`UPDATE categories SET targetAmount = targetHours
-      WHERE budgetId IN (SELECT id FROM budgets WHERE type = 'money')`);
-  }
-}
-
-// Migrate: add rollover to categories
-{
-  const cols = db.prepare('PRAGMA table_info(categories)').all();
-  if (!cols.find(c => c.name === 'rollover')) {
-    db.exec('ALTER TABLE categories ADD COLUMN rollover INTEGER NOT NULL DEFAULT 0');
-  }
-}
-
-// Migrate: add transferId to transactions
-{
-  const cols = db.prepare('PRAGMA table_info(transactions)').all();
-  if (!cols.find(c => c.name === 'transferId')) {
-    db.exec('ALTER TABLE transactions ADD COLUMN transferId TEXT');
-  }
+// Migrate: targetAmount replaces targetHours for money budgets
+if (addColumnIfMissing('categories', 'targetAmount', 'REAL')) {
+  db.exec(`UPDATE categories SET targetAmount = targetHours
+    WHERE budgetId IN (SELECT id FROM budgets WHERE type = 'money')`);
 }
 
 // Migrate: people belong to a people-list (budgets row with type 'people').
 // Adds the column and adopts any orphan people into a default list.
 {
-  const cols = db.prepare('PRAGMA table_info(people)').all();
-  if (!cols.find(c => c.name === 'budgetId')) {
-    db.exec('ALTER TABLE people ADD COLUMN budgetId TEXT');
-  }
+  addColumnIfMissing('people', 'budgetId', 'TEXT');
   const orphans = db.prepare('SELECT COUNT(*) c FROM people WHERE budgetId IS NULL AND deleted = 0').get().c;
   if (orphans > 0) {
     const ts = Date.now();
@@ -229,20 +188,6 @@ for (const table of tables) {
         .run(list.id, 'People', 'people', 'none', ts, ts);
     }
     db.prepare('UPDATE people SET budgetId = ?, updatedAt = ? WHERE budgetId IS NULL AND deleted = 0').run(list.id, ts);
-  }
-}
-
-// Migrate: add date fields to person_notes
-{
-  const cols = db.prepare('PRAGMA table_info(person_notes)').all();
-  if (!cols.find(c => c.name === 'expiresAt')) {
-    db.exec('ALTER TABLE person_notes ADD COLUMN expiresAt TEXT');
-  }
-  if (!cols.find(c => c.name === 'remindOn')) {
-    db.exec('ALTER TABLE person_notes ADD COLUMN remindOn TEXT');
-  }
-  if (!cols.find(c => c.name === 'repeatYearly')) {
-    db.exec('ALTER TABLE person_notes ADD COLUMN repeatYearly INTEGER NOT NULL DEFAULT 0');
   }
 }
 
@@ -276,165 +221,18 @@ function upsertRow(table, row, columns) {
   stmt.run(...columns.map(c => row[c] ?? null));
 }
 
-// --- Budgets ---
+// --- Table column lists (used by the sync endpoint and OFX batch import) ---
+// All client/server data flow goes through /api/sync; there are no per-record
+// REST endpoints. Mutations happen in IndexedDB on the client and sync over.
 
 const BUDGET_COLS = ['id', 'name', 'type', 'periodType', 'periodStartDay', 'deleted', 'createdAt', 'updatedAt'];
-
-app.get('/api/budgets', (req, res) => {
-  res.json(db.prepare('SELECT * FROM budgets WHERE deleted = 0 ORDER BY createdAt').all());
-});
-
-app.post('/api/budgets', (req, res) => {
-  const row = { deleted: 0, ...req.body };
-  upsertRow('budgets', row, BUDGET_COLS);
-  res.json(db.prepare('SELECT * FROM budgets WHERE id = ?').get(row.id));
-});
-
-app.get('/api/budgets/:id', (req, res) => {
-  const row = db.prepare('SELECT * FROM budgets WHERE id = ? AND deleted = 0').get(req.params.id);
-  if (!row) return res.status(404).json({ error: 'Not found' });
-  res.json(row);
-});
-
-app.put('/api/budgets/:id', (req, res) => {
-  const row = { deleted: 0, ...req.body, id: req.params.id };
-  upsertRow('budgets', row, BUDGET_COLS);
-  res.json(db.prepare('SELECT * FROM budgets WHERE id = ?').get(req.params.id));
-});
-
-app.delete('/api/budgets/:id', (req, res) => {
-  const now = Date.now();
-  // Soft-delete budget and all its children
-  db.prepare('UPDATE budgets SET deleted = 1, updatedAt = ? WHERE id = ?').run(now, req.params.id);
-  db.prepare('UPDATE categories SET deleted = 1, updatedAt = ? WHERE budgetId = ?').run(now, req.params.id);
-  db.prepare('UPDATE entries SET deleted = 1, updatedAt = ? WHERE budgetId = ?').run(now, req.params.id);
-  db.prepare('UPDATE events SET deleted = 1, updatedAt = ? WHERE budgetId = ?').run(now, req.params.id);
-  db.prepare('UPDATE period_overrides SET deleted = 1, updatedAt = ? WHERE budgetId = ?').run(now, req.params.id);
-  db.prepare('UPDATE transactions SET deleted = 1, updatedAt = ? WHERE budgetId = ?').run(now, req.params.id);
-  res.json({ ok: true });
-});
-
-// --- Categories ---
-
 const CATEGORY_COLS = ['id', 'budgetId', 'parentId', 'name', 'color', 'targetHours', 'targetAmount', 'minHours', 'maxHours', 'sortOrder', 'rollover', 'deleted', 'createdAt', 'updatedAt'];
-
-app.get('/api/budgets/:id/categories', (req, res) => {
-  res.json(db.prepare('SELECT * FROM categories WHERE budgetId = ? AND deleted = 0 ORDER BY sortOrder').all(req.params.id));
-});
-
-app.post('/api/budgets/:id/categories', (req, res) => {
-  const row = { deleted: 0, ...req.body, budgetId: req.params.id };
-  upsertRow('categories', row, CATEGORY_COLS);
-  res.json(db.prepare('SELECT * FROM categories WHERE id = ?').get(row.id));
-});
-
-app.put('/api/categories/:id', (req, res) => {
-  const row = { deleted: 0, ...req.body, id: req.params.id };
-  upsertRow('categories', row, CATEGORY_COLS);
-  res.json(db.prepare('SELECT * FROM categories WHERE id = ?').get(req.params.id));
-});
-
-app.delete('/api/categories/:id', (req, res) => {
-  const now = Date.now();
-  db.prepare('UPDATE categories SET deleted = 1, updatedAt = ? WHERE id = ?').run(now, req.params.id);
-  res.json({ ok: true });
-});
-
-// --- Entries ---
-
 const ENTRY_COLS = ['id', 'budgetId', 'categoryId', 'date', 'hours', 'startTime', 'endTime', 'note', 'deleted', 'createdAt', 'updatedAt'];
-
-app.get('/api/budgets/:id/entries', (req, res) => {
-  const { from, to } = req.query;
-  let sql = 'SELECT * FROM entries WHERE budgetId = ? AND deleted = 0';
-  const params = [req.params.id];
-  if (from) { sql += ' AND date >= ?'; params.push(from); }
-  if (to) { sql += ' AND date <= ?'; params.push(to); }
-  sql += ' ORDER BY date, createdAt';
-  res.json(db.prepare(sql).all(...params));
-});
-
-app.post('/api/budgets/:id/entries', (req, res) => {
-  const row = { deleted: 0, ...req.body, budgetId: req.params.id };
-  upsertRow('entries', row, ENTRY_COLS);
-  res.json(db.prepare('SELECT * FROM entries WHERE id = ?').get(row.id));
-});
-
-app.put('/api/entries/:id', (req, res) => {
-  const row = { deleted: 0, ...req.body, id: req.params.id };
-  upsertRow('entries', row, ENTRY_COLS);
-  res.json(db.prepare('SELECT * FROM entries WHERE id = ?').get(req.params.id));
-});
-
-app.delete('/api/entries/:id', (req, res) => {
-  const now = Date.now();
-  db.prepare('UPDATE entries SET deleted = 1, updatedAt = ? WHERE id = ?').run(now, req.params.id);
-  res.json({ ok: true });
-});
-
-// --- Events ---
-
 const EVENT_COLS = ['id', 'budgetId', 'date', 'startAt', 'endAt', 'hours', 'description', 'categories', 'deleted', 'createdAt', 'updatedAt'];
-
-app.get('/api/budgets/:id/events', (req, res) => {
-  const { from, to } = req.query;
-  let sql = 'SELECT * FROM events WHERE budgetId = ? AND deleted = 0';
-  const params = [req.params.id];
-  if (from) { sql += ' AND date >= ?'; params.push(from); }
-  if (to) { sql += ' AND date <= ?'; params.push(to); }
-  sql += ' ORDER BY date, createdAt';
-  res.json(db.prepare(sql).all(...params).map(deserializeEvent));
-});
-
-app.post('/api/budgets/:id/events', (req, res) => {
-  const row = serializeEvent({ deleted: 0, ...req.body, budgetId: req.params.id });
-  upsertRow('events', row, EVENT_COLS);
-  res.json(deserializeEvent(db.prepare('SELECT * FROM events WHERE id = ?').get(row.id)));
-});
-
-app.put('/api/events/:id', (req, res) => {
-  const row = serializeEvent({ deleted: 0, ...req.body, id: req.params.id });
-  upsertRow('events', row, EVENT_COLS);
-  res.json(deserializeEvent(db.prepare('SELECT * FROM events WHERE id = ?').get(req.params.id)));
-});
-
-app.delete('/api/events/:id', (req, res) => {
-  const now = Date.now();
-  db.prepare('UPDATE events SET deleted = 1, updatedAt = ? WHERE id = ?').run(now, req.params.id);
-  res.json({ ok: true });
-});
-
-// --- Transactions ---
-
 const TRANSACTION_COLS = ['id', 'budgetId', 'categoryId', 'date', 'amount', 'payee', 'memo', 'fitid', 'trntype', 'transferId', 'deleted', 'createdAt', 'updatedAt'];
-
-app.get('/api/budgets/:id/transactions', (req, res) => {
-  const { from, to } = req.query;
-  let sql = 'SELECT * FROM transactions WHERE budgetId = ? AND deleted = 0';
-  const params = [req.params.id];
-  if (from) { sql += ' AND date >= ?'; params.push(from); }
-  if (to) { sql += ' AND date <= ?'; params.push(to); }
-  sql += ' ORDER BY date DESC, createdAt';
-  res.json(db.prepare(sql).all(...params));
-});
-
-app.post('/api/budgets/:id/transactions', (req, res) => {
-  const row = { deleted: 0, ...req.body, budgetId: req.params.id };
-  upsertRow('transactions', row, TRANSACTION_COLS);
-  res.json(db.prepare('SELECT * FROM transactions WHERE id = ?').get(row.id));
-});
-
-app.put('/api/transactions/:id', (req, res) => {
-  const row = { deleted: 0, ...req.body, id: req.params.id };
-  upsertRow('transactions', row, TRANSACTION_COLS);
-  res.json(db.prepare('SELECT * FROM transactions WHERE id = ?').get(req.params.id));
-});
-
-app.delete('/api/transactions/:id', (req, res) => {
-  const now = Date.now();
-  db.prepare('UPDATE transactions SET deleted = 1, updatedAt = ? WHERE id = ?').run(now, req.params.id);
-  res.json({ ok: true });
-});
+const OVERRIDE_COLS = ['id', 'budgetId', 'categoryId', 'periodStart', 'targetHours', 'minHours', 'maxHours', 'deleted', 'createdAt', 'updatedAt'];
+const PEOPLE_COLS = ['id', 'budgetId', 'name', 'tag', 'deleted', 'createdAt', 'updatedAt'];
+const PERSON_NOTE_COLS = ['id', 'personId', 'text', 'pinned', 'expiresAt', 'remindOn', 'repeatYearly', 'deleted', 'createdAt', 'updatedAt'];
 
 // --- OFX Import ---
 
@@ -494,15 +292,6 @@ app.post('/api/budgets/:id/transactions/batch', (req, res) => {
   res.json({ imported: items.length });
 });
 
-// --- Period Overrides ---
-
-const OVERRIDE_COLS = ['id', 'budgetId', 'categoryId', 'periodStart', 'targetHours', 'minHours', 'maxHours', 'deleted', 'createdAt', 'updatedAt'];
-
-// --- People ---
-
-const PEOPLE_COLS = ['id', 'budgetId', 'name', 'tag', 'deleted', 'createdAt', 'updatedAt'];
-const PERSON_NOTE_COLS = ['id', 'personId', 'text', 'pinned', 'expiresAt', 'remindOn', 'repeatYearly', 'deleted', 'createdAt', 'updatedAt'];
-
 // --- Sync endpoint ---
 // Returns ALL records changed since lastSyncAt, including soft-deleted ones.
 // This is how deletions propagate to other devices.
@@ -517,7 +306,7 @@ app.post('/api/sync', (req, res) => {
     for (const r of cCategories) upsertRow('categories', { targetHours: 0, deleted: 0, rollover: 0, ...r }, CATEGORY_COLS);
     for (const r of cEntries) upsertRow('entries', { deleted: 0, ...r }, ENTRY_COLS);
     for (const r of cEvents) upsertRow('events', serializeEvent({ deleted: 0, ...r }), EVENT_COLS);
-    for (const r of cOverrides) upsertRow('period_overrides', { deleted: 0, ...r }, OVERRIDE_COLS);
+    for (const r of cOverrides) upsertRow('period_overrides', { targetHours: 0, deleted: 0, ...r }, OVERRIDE_COLS);
     for (const r of cTransactions) upsertRow('transactions', { deleted: 0, ...r }, TRANSACTION_COLS);
     // People before notes: person_notes has an FK to people
     for (const r of cPeople) upsertRow('people', { budgetId: null, tag: null, deleted: 0, ...r }, PEOPLE_COLS);

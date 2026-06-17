@@ -60,7 +60,7 @@ export function BudgetHome({ budgetId }) {
           const ts = now();
           const newSnapshots = goalCats.map(cat => ({
             id: uuid(), budgetId, categoryId: cat.id,
-            periodStart: currentWeekStr, targetHours: 0,
+            periodStart: currentWeekStr,
             minHours: cat.minHours, maxHours: cat.maxHours,
             createdAt: ts, updatedAt: ts,
           }));
@@ -196,7 +196,6 @@ export function BudgetHome({ budgetId }) {
   async function renameBudget(newName) {
     if (!budget || !newName.trim()) return;
     const updated = { ...budget, name: newName.trim(), updatedAt: now() };
-    delete updated._dirty;
     await db.putBudget(updated);
     setBudget(updated);
     setEditing(false);
@@ -208,8 +207,10 @@ export function BudgetHome({ budgetId }) {
     const cats = await db.getCategories(budgetId);
     const ents = await db.getEntries(budgetId);
     const evts = await db.getEvents(budgetId);
+    const ovrs = await db.getOverrides(budgetId);
     for (const e of evts) await db.deleteEvent(e.id, ts);
     for (const e of ents) await db.deleteEntry(e.id, ts);
+    for (const o of ovrs) await db.deleteOverride(o.id, ts);
     for (const c of cats) await db.deleteCategory(c.id, ts);
     await db.deleteBudget(budgetId, ts);
     syncAfterMutation();

@@ -3,7 +3,7 @@ import { html } from 'htm/preact';
 import { db } from '../db.js';
 import { navigate } from '../router.js';
 import { syncAfterMutation } from '../sync.js';
-import { uuid, now, getMonthDates, getMonthLabel, formatCurrency, buildCategoryTree, flattenCategoryTree } from '../utils.js';
+import { uuid, now, today, getMonthDates, getMonthLabel, formatCurrency, buildCategoryTree, flattenCategoryTree, rollUpToParents } from '../utils.js';
 
 // Compute subtree targets: for each category, the sum of its own target plus all descendants' targets.
 function buildSubtreeTargets(categories, catById) {
@@ -51,20 +51,12 @@ function computeRollover(allTransactions, categories, catById, subtreeTargets, m
       if (t.categoryId && net[t.categoryId] !== undefined) net[t.categoryId] += t.amount;
     }
 
-    // Rollup net to parents
-    for (const [catId, amt] of Object.entries(net)) {
-      if (amt === 0) continue;
-      let cat = catById[catId];
-      while (cat && cat.parentId) {
-        net[cat.parentId] = (net[cat.parentId] || 0) + amt;
-        cat = catById[cat.parentId];
-      }
-    }
+    const netRolled = rollUpToParents(net, catById);
 
     // Accumulate surplus/deficit for rollover-enabled categories only.
     // Use subtreeTargets so children's targets are included in the parent's balance.
     for (const cat of rolloverCats) {
-      const balance = (subtreeTargets[cat.id] || 0) + (net[cat.id] || 0);
+      const balance = (subtreeTargets[cat.id] || 0) + (netRolled[cat.id] || 0);
       rolloverByCat[cat.id] += balance;
     }
   }
@@ -85,10 +77,7 @@ export function MoneyHome({ budgetId }) {
   const [transferFrom, setTransferFrom] = useState('');
   const [transferTo, setTransferTo] = useState('');
   const [transferAmount, setTransferAmount] = useState('');
-  const [transferDate, setTransferDate] = useState(() => {
-    const d = new Date();
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-  });
+  const [transferDate, setTransferDate] = useState(() => today());
   const nameRef = useRef(null);
 
   const monthDate = new Date();
@@ -116,7 +105,6 @@ export function MoneyHome({ budgetId }) {
   async function renameBudget(newName) {
     if (!budget || !newName.trim()) return;
     const updated = { ...budget, name: newName.trim(), updatedAt: now() };
-    delete updated._dirty;
     await db.putBudget(updated);
     setBudget(updated);
     setEditing(false);
@@ -182,15 +170,7 @@ export function MoneyHome({ budgetId }) {
     }
   }
 
-  const totals = { ...direct };
-  for (const [catId, spent] of Object.entries(direct)) {
-    if (spent === 0) continue;
-    let cat = catById[catId];
-    while (cat && cat.parentId) {
-      totals[cat.parentId] = (totals[cat.parentId] || 0) + spent;
-      cat = catById[cat.parentId];
-    }
-  }
+  const totals = rollUpToParents(direct, catById);
 
   const tree = buildCategoryTree(categories);
   const flat = flattenCategoryTree(tree);
@@ -205,16 +185,7 @@ export function MoneyHome({ budgetId }) {
     }
   }
 
-  // Rollup categoryNet to parents
-  const categoryNetRolled = { ...categoryNet };
-  for (const [catId, amt] of Object.entries(categoryNet)) {
-    if (amt === 0) continue;
-    let cat = catById[catId];
-    while (cat && cat.parentId) {
-      categoryNetRolled[cat.parentId] = (categoryNetRolled[cat.parentId] || 0) + amt;
-      cat = catById[cat.parentId];
-    }
-  }
+  const categoryNetRolled = rollUpToParents(categoryNet, catById);
 
   // Rollover from past months (only for rollover-enabled categories, using subtree targets)
   const rolloverByCat = computeRollover(allTransactions, categories, catById, subtreeTargets, monthStart);

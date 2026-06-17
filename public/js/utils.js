@@ -66,16 +66,6 @@ export function formatRange(startDate, endDate) {
   return `${formatShort(s)} – ${formatShort(e)}`;
 }
 
-// Calculate hours from HH:MM start/end
-export function calcHours(startTime, endTime) {
-  if (!startTime || !endTime) return null;
-  const [sh, sm] = startTime.split(':').map(Number);
-  const [eh, em] = endTime.split(':').map(Number);
-  let diff = (eh * 60 + em) - (sh * 60 + sm);
-  if (diff < 0) diff += 24 * 60; // crosses midnight
-  return Math.round(diff / 60 * 100) / 100;
-}
-
 // Parse natural duration strings: "30m", "1h", "1h30m", "90m", "1.5" → hours
 export function parseDuration(str) {
   if (!str) return null;
@@ -206,11 +196,6 @@ export function formatCurrency(amount) {
   return amount < 0 ? `-$${formatted}` : `$${formatted}`;
 }
 
-export function parseOFXDate(dtposted) {
-  if (!dtposted || dtposted.length < 8) return null;
-  return `${dtposted.slice(0, 4)}-${dtposted.slice(4, 6)}-${dtposted.slice(6, 8)}`;
-}
-
 // --- People utilities ---
 
 // Person.tag holds a comma-separated tag list ("friend, gym")
@@ -270,6 +255,34 @@ export function flattenCategoryTree(nodes, depth = 0, result = []) {
   return result;
 }
 
+// All descendant IDs of a category (e.g. for subtree deletes, reparent cycle checks).
+export function getDescendantIds(catId, allCats) {
+  const result = new Set();
+  const queue = [catId];
+  while (queue.length) {
+    const id = queue.shift();
+    for (const c of allCats) {
+      if (c.parentId === id && !result.has(c.id)) { result.add(c.id); queue.push(c.id); }
+    }
+  }
+  return result;
+}
+
+// Add each category's amount to all its ancestors. Returns a new map; the
+// input map's entries are the direct (per-category) amounts.
+export function rollUpToParents(direct, catById) {
+  const totals = { ...direct };
+  for (const [catId, amount] of Object.entries(direct)) {
+    if (!amount) continue;
+    let cat = catById[catId];
+    while (cat && cat.parentId) {
+      totals[cat.parentId] = (totals[cat.parentId] || 0) + amount;
+      cat = catById[cat.parentId];
+    }
+  }
+  return totals;
+}
+
 // Compute attention hours per category across given dates, with parent rollup.
 // Returns { [categoryId]: totalHours }
 export function computeHoursByCat(events, dates, categories) {
@@ -286,15 +299,5 @@ export function computeHoursByCat(events, dates, categories) {
       }
     }
   }
-  // Roll up to parents
-  const totals = { ...direct };
-  for (const catId of Object.keys(direct)) {
-    const h = direct[catId];
-    let cat = catById[catId];
-    while (cat && cat.parentId) {
-      totals[cat.parentId] = (totals[cat.parentId] || 0) + h;
-      cat = catById[cat.parentId];
-    }
-  }
-  return totals;
+  return rollUpToParents(direct, catById);
 }

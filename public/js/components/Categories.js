@@ -1,21 +1,14 @@
-import { useState, useEffect, useRef } from 'preact/hooks';
+import { useState, useEffect } from 'preact/hooks';
 import { html } from 'htm/preact';
 import { db } from '../db.js';
-import { syncAfterMutation } from '../sync.js';
-import { uuid, now, buildCategoryTree, flattenCategoryTree } from '../utils.js';
+import { syncAfterMutation, debouncedSync } from '../sync.js';
+import { uuid, now, buildCategoryTree, flattenCategoryTree, getDescendantIds } from '../utils.js';
 
 const PALETTE = ['#6366f1', '#f59e0b', '#10b981', '#ec4899', '#8b5cf6', '#06b6d4', '#f97316', '#84cc16', '#e11d48', '#64748b'];
-
-// All descendant IDs of a given category (to prevent reparenting cycles).
-function getDescendantIds(id, allCats) {
-  const children = allCats.filter(c => c.parentId === id);
-  return children.flatMap(c => [c.id, ...getDescendantIds(c.id, allCats)]);
-}
 
 export function Categories({ budgetId }) {
   const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(true);
-  const saveTimer = useRef(null);
 
   async function load() {
     const cats = await db.getCategories(budgetId);
@@ -25,18 +18,13 @@ export function Categories({ budgetId }) {
 
   useEffect(() => { load(); }, [budgetId]);
 
-  function scheduleSync() {
-    clearTimeout(saveTimer.current);
-    saveTimer.current = setTimeout(() => syncAfterMutation(), 500);
-  }
-
   async function updateCat(id, field, value) {
     const cat = categories.find(c => c.id === id);
     if (!cat) return;
     const updated = { ...cat, [field]: value, updatedAt: now() };
     await db.putCategory(updated);
     setCategories(prev => prev.map(c => c.id === id ? updated : c));
-    scheduleSync();
+    debouncedSync();
   }
 
   async function addCategory(parentId = null) {
@@ -48,7 +36,6 @@ export function Categories({ budgetId }) {
       parentId,
       name: '',
       color: PALETTE[categories.length % PALETTE.length],
-      targetHours: 0,
       minHours: null,
       maxHours: null,
       sortOrder: siblings.length,
@@ -57,12 +44,17 @@ export function Categories({ budgetId }) {
     };
     await db.putCategory(cat);
     setCategories(prev => [...prev, cat]);
-    scheduleSync();
+    debouncedSync();
   }
 
   async function removeCat(id) {
-    await db.deleteCategory(id, now());
-    setCategories(prev => prev.filter(c => c.id !== id));
+    const ts = now();
+    const descendants = getDescendantIds(id, categories);
+    for (const descId of descendants) {
+      await db.deleteCategory(descId, ts);
+    }
+    await db.deleteCategory(id, ts);
+    setCategories(prev => prev.filter(c => c.id !== id && !descendants.has(c.id)));
     syncAfterMutation();
   }
 
@@ -87,7 +79,7 @@ export function Categories({ budgetId }) {
       if (c.id === swapWith.id) return updB;
       return c;
     }));
-    scheduleSync();
+    debouncedSync();
   }
 
   async function reparentCat(id, newParentId) {
