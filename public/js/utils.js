@@ -190,6 +190,52 @@ export function getMonthDates(date = new Date()) {
   return { start: toDateStr(start), end: toDateStr(end) };
 }
 
+// First day of the month containing `date`, as 'YYYY-MM-01' (local time).
+export function monthStartOf(date = new Date()) {
+  return toDateStr(getMonthStart(date));
+}
+
+// The month being viewed given a nav offset from the current month.
+// Pinned to day 1 before setMonth so offsets never skip a month
+// (on Jan 31, setMonth(+1) would otherwise land in March).
+export function offsetMonthDate(monthOffset) {
+  const d = new Date();
+  d.setDate(1);
+  d.setMonth(d.getMonth() + monthOffset);
+  return d;
+}
+
+// --- Money budget helpers ---
+
+// trntype sentinels: 'transfer' legs and balance adjustments are bookkeeping,
+// not real income/spending, and every income/spending computation must skip both.
+export const TRN_TRANSFER = 'transfer';
+export const TRN_ADJUSTMENT = 'ADJUSTMENT';
+
+export function isTransferTxn(t) { return t.trntype === TRN_TRANSFER; }
+export function isAdjustmentTxn(t) { return t.trntype === TRN_ADJUSTMENT; }
+export function isRealTxn(t) { return !isTransferTxn(t) && !isAdjustmentTxn(t); }
+
+// Category natures: unset defaults to 'flow'.
+export function isFund(cat) { return cat.nature === 'fund'; }
+
+// Fund location: unset defaults to 'earmarked' (kept in checking).
+export function isEarmarkedFund(cat) { return cat.location !== 'real'; }
+
+// Planned = sum of per-category commitments in a month's plan rows.
+// Flow rows commit maxAmount ?? minAmount; fund rows commit their contribution.
+// No parent rollup — plans are per-category commitments.
+export function computePlanned(monthPlans, catById) {
+  let planned = 0;
+  for (const p of monthPlans) {
+    const cat = catById[p.categoryId];
+    if (!cat) continue;
+    if (isFund(cat)) planned += p.contribution || 0;
+    else planned += p.maxAmount ?? p.minAmount ?? 0;
+  }
+  return planned;
+}
+
 export function formatCurrency(amount) {
   const abs = Math.abs(amount);
   const formatted = abs.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });

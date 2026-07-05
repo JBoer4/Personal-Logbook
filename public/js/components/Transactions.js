@@ -3,11 +3,15 @@ import { html } from 'htm/preact';
 import { db } from '../db.js';
 import { navigate } from '../router.js';
 import { syncAfterMutation, debouncedSync } from '../sync.js';
-import { uuid, now, today, getMonthLabel, getMonthDates, formatCurrency } from '../utils.js';
+import {
+  uuid, now, today, getMonthLabel, getMonthDates, offsetMonthDate, formatCurrency,
+  TRN_TRANSFER, isTransferTxn, isAdjustmentTxn, isRealTxn,
+} from '../utils.js';
 
 export function Transactions({ budgetId }) {
   const [transactions, setTransactions] = useState([]);
   const [categories, setCategories] = useState([]);
+  const [rules, setRules] = useState([]);
   const [monthOffset, setMonthOffset] = useState(0);
   const [filter, setFilter] = useState('all'); // 'all', 'uncategorized', or a categoryId
   const [loading, setLoading] = useState(true);
@@ -16,9 +20,13 @@ export function Transactions({ budgetId }) {
   const [addAmount, setAddAmount] = useState('');
   const [addDate, setAddDate] = useState(today());
   const [addCategory, setAddCategory] = useState('');
+  const [showRules, setShowRules] = useState(false);
+  const [ruleFormOpen, setRuleFormOpen] = useState(false);
+  const [ruleMatch, setRuleMatch] = useState('');
+  const [ruleCategory, setRuleCategory] = useState('');
+  const [ruleMarkTransfer, setRuleMarkTransfer] = useState(false);
 
-  const monthDate = new Date();
-  monthDate.setMonth(monthDate.getMonth() + monthOffset);
+  const monthDate = offsetMonthDate(monthOffset);
   const { start: monthStart, end: monthEnd } = getMonthDates(monthDate);
   const monthLabel = getMonthLabel(monthDate);
 
@@ -31,6 +39,11 @@ export function Transactions({ budgetId }) {
     const monthTxns = allTxns.filter(t => t.date >= monthStart && t.date <= monthEnd);
     monthTxns.sort((a, b) => b.date.localeCompare(a.date) || b.createdAt - a.createdAt);
     setTransactions(monthTxns);
+
+    const moneyRules = await db.getMoneyRules(budgetId);
+    moneyRules.sort((a, b) => a.createdAt - b.createdAt);
+    setRules(moneyRules);
+
     setLoading(false);
   }
 
@@ -40,6 +53,16 @@ export function Transactions({ budgetId }) {
     const txn = transactions.find(t => t.id === txnId);
     if (!txn) return;
     const updated = { ...txn, categoryId: categoryId || null, updatedAt: now() };
+    await db.putTransaction(updated);
+    setTransactions(prev => prev.map(t => t.id === txnId ? updated : t));
+    debouncedSync();
+  }
+
+  async function toggleTransfer(txnId) {
+    const txn = transactions.find(t => t.id === txnId);
+    if (!txn) return;
+    const newType = isTransferTxn(txn) ? '' : TRN_TRANSFER;
+    const updated = { ...txn, trntype: newType, updatedAt: now() };
     await db.putTransaction(updated);
     setTransactions(prev => prev.map(t => t.id === txnId ? updated : t));
     debouncedSync();
@@ -72,6 +95,42 @@ export function Transactions({ budgetId }) {
     syncAfterMutation();
   }
 
+  function openRuleForm(match = '', categoryId = '') {
+    setRuleMatch(match);
+    setRuleCategory(categoryId);
+    setRuleMarkTransfer(false);
+    setShowRules(true);
+    setRuleFormOpen(true);
+  }
+
+  async function saveRule() {
+    const match = ruleMatch.trim();
+    if (!match || (!ruleCategory && !ruleMarkTransfer)) return;
+    const ts = now();
+    const rule = {
+      id: uuid(),
+      budgetId,
+      match,
+      categoryId: ruleCategory || null,
+      markTransfer: ruleMarkTransfer ? 1 : 0,
+      createdAt: ts,
+      updatedAt: ts,
+    };
+    await db.putMoneyRule(rule);
+    setRules(prev => [...prev, rule].sort((a, b) => a.createdAt - b.createdAt));
+    setRuleFormOpen(false);
+    setRuleMatch('');
+    setRuleCategory('');
+    setRuleMarkTransfer(false);
+    syncAfterMutation();
+  }
+
+  async function deleteRule(ruleId) {
+    await db.deleteMoneyRule(ruleId, now());
+    setRules(prev => prev.filter(r => r.id !== ruleId));
+    syncAfterMutation();
+  }
+
   if (loading) return html`<div class="loading">Loading...</div>`;
 
   // Filter transactions
@@ -82,9 +141,10 @@ export function Transactions({ budgetId }) {
     filtered = transactions.filter(t => t.categoryId === filter);
   }
 
-  // Summary
-  const totalExpense = transactions.filter(t => t.amount < 0).reduce((s, t) => s + t.amount, 0);
-  const totalIncome = transactions.filter(t => t.amount > 0).reduce((s, t) => s + t.amount, 0);
+  // Summary — real income/spending only, excluding transfers and balance adjustments
+  const summaryTxns = transactions.filter(isRealTxn);
+  const totalExpense = summaryTxns.filter(t => t.amount < 0).reduce((s, t) => s + t.amount, 0);
+  const totalIncome = summaryTxns.filter(t => t.amount > 0).reduce((s, t) => s + t.amount, 0);
   const uncatCount = transactions.filter(t => !t.categoryId).length;
 
   const catMap = {};
@@ -135,6 +195,54 @@ export function Transactions({ budgetId }) {
         </div>
       `}
 
+      <div class="rules-section">
+        <button class="rules-toggle" onClick=${() => setShowRules(v => !v)}>
+          Rules (${rules.length}) <span class="rules-caret">${showRules ? '▾' : '▸'}</span>
+        </button>
+        ${showRules && html`
+          <div class="rules-panel">
+            ${rules.length === 0 && html`<p class="rules-empty">No rules yet</p>`}
+            ${rules.map(r => html`
+              <div class="rule-row" key=${r.id}>
+                <span class="rule-match">"${r.match}"</span>
+                <span class="rule-action">
+                  ${[
+                    r.categoryId ? `→ ${catMap[r.categoryId]?.name || 'category'}` : null,
+                    r.markTransfer ? 'mark transfer' : null,
+                  ].filter(Boolean).join(' + ')}
+                </span>
+                <button class="rule-delete" title="Delete rule" onClick=${() => deleteRule(r.id)}>✕</button>
+              </div>
+            `)}
+            ${!ruleFormOpen ? html`
+              <button class="btn btn-secondary rule-add-btn" onClick=${() => openRuleForm()}>
+                + Add rule
+              </button>
+            ` : html`
+              <div class="rule-add-form">
+                <input class="txn-add-input" type="text" placeholder="Match text (e.g. ALBERT HEIJN)"
+                  value=${ruleMatch} onInput=${(e) => setRuleMatch(e.target.value)} />
+                <div class="txn-add-row">
+                  <select class="txn-cat-select" value=${ruleCategory} onChange=${(e) => setRuleCategory(e.target.value)}>
+                    <option value="">— none —</option>
+                    ${categories.map(c => html`<option key=${c.id} value=${c.id}>${c.name}</option>`)}
+                  </select>
+                </div>
+                <label class="rule-transfer-check">
+                  <input type="checkbox" checked=${ruleMarkTransfer}
+                    onChange=${(e) => setRuleMarkTransfer(e.target.checked)} />
+                  mark as transfer
+                </label>
+                <div class="txn-add-row">
+                  <button class="btn btn-secondary" onClick=${() => setRuleFormOpen(false)}>Cancel</button>
+                  <button class="btn txn-add-save" onClick=${saveRule}>Save</button>
+                </div>
+              </div>
+            `}
+          </div>
+        `}
+      </div>
+
       <div class="txn-filters">
         <button class="txn-filter ${filter === 'all' ? 'active' : ''}"
           onClick=${() => setFilter('all')}>All (${transactions.length})</button>
@@ -161,11 +269,17 @@ export function Transactions({ budgetId }) {
       <div class="txn-list">
         ${filtered.map(txn => {
           const cat = txn.categoryId ? catMap[txn.categoryId] : null;
+          const isTransfer = isTransferTxn(txn);
+          const isAdjustment = isAdjustmentTxn(txn);
           return html`
-            <div class="txn-row" key=${txn.id}>
+            <div class="txn-row ${isTransfer ? 'txn-row-muted' : ''}" key=${txn.id}>
               <div class="txn-main">
                 <span class="txn-date">${txn.date.slice(5)}</span>
                 <span class="txn-payee">${txn.payee || txn.memo || '—'}</span>
+                ${txn.ruleId && html`<span class="txn-badge txn-badge-auto" title="categorized by rule">auto</span>`}
+                ${isTransfer && html`<span class="txn-badge txn-badge-transfer">transfer</span>`}
+                ${isAdjustment && html`<span class="txn-badge txn-badge-adjustment">adjustment</span>`}
+                ${txn.account && html`<span class="txn-account-tag">…${txn.account.slice(-4)}</span>`}
                 <span class="txn-amount ${txn.amount < 0 ? 'negative' : 'positive'}">
                   ${formatCurrency(txn.amount)}
                 </span>
@@ -179,6 +293,13 @@ export function Transactions({ budgetId }) {
                   `)}
                 </select>
                 ${cat && html`<span class="txn-cat-dot" style=${{ background: cat.color }}></span>`}
+                ${!isAdjustment && html`
+                  <button class="txn-transfer-toggle ${isTransfer ? 'active' : ''}"
+                    title=${isTransfer ? 'Unmark transfer' : 'Mark as transfer'}
+                    onClick=${() => toggleTransfer(txn.id)}>⇄</button>
+                `}
+                <button class="txn-rule-btn" title="Add rule from this transaction"
+                  onClick=${() => openRuleForm(txn.payee || '', txn.categoryId || '')}>+rule</button>
               </div>
             </div>
           `;

@@ -2,8 +2,8 @@
 // Uses soft deletes (deleted flag) so deletions propagate via sync.
 
 const DB_NAME = 'budget-app';
-const DB_VERSION = 5;
-const STORES = ['budgets', 'categories', 'entries', 'periodOverrides', 'transactions', 'events', 'people', 'personNotes', 'meta'];
+const DB_VERSION = 6;
+const STORES = ['budgets', 'categories', 'entries', 'periodOverrides', 'transactions', 'events', 'people', 'personNotes', 'moneyPlans', 'moneyRules', 'meta'];
 
 let dbInstance = null;
 
@@ -37,6 +37,8 @@ function openDB() {
             store.createIndex('date', 'date');
           }
           if (name === 'personNotes') store.createIndex('personId', 'personId');
+          if (name === 'moneyPlans') store.createIndex('budgetId', 'budgetId');
+          if (name === 'moneyRules') store.createIndex('budgetId', 'budgetId');
         }
       }
     };
@@ -189,6 +191,18 @@ export const db = {
   putPersonNoteClean: (record) => putClean('personNotes', record),
   deletePersonNote: (id, ts) => softDelete('personNotes', id, ts),
 
+  // Money Plans
+  getMoneyPlans: (budgetId) => getAllByIndex('moneyPlans', 'budgetId', budgetId),
+  putMoneyPlan: (record) => put('moneyPlans', record),
+  putMoneyPlanClean: (record) => putClean('moneyPlans', record),
+  deleteMoneyPlan: (id, ts) => softDelete('moneyPlans', id, ts),
+
+  // Money Rules
+  getMoneyRules: (budgetId) => getAllByIndex('moneyRules', 'budgetId', budgetId),
+  putMoneyRule: (record) => put('moneyRules', record),
+  putMoneyRuleClean: (record) => putClean('moneyRules', record),
+  deleteMoneyRule: (id, ts) => softDelete('moneyRules', id, ts),
+
   // Meta
   getMeta,
   setMeta,
@@ -202,5 +216,7 @@ export const db = {
   getDirtyEvents: () => getDirty('events'),
   getDirtyPeople: () => getDirty('people'),
   getDirtyPersonNotes: () => getDirty('personNotes'),
+  getDirtyMoneyPlans: () => getDirty('moneyPlans'),
+  getDirtyMoneyRules: () => getDirty('moneyRules'),
   cleanRecord,
 };

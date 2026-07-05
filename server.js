@@ -144,6 +144,38 @@ db.exec(`
   );
 
   CREATE INDEX IF NOT EXISTS idx_person_notes_person ON person_notes(personId);
+
+  CREATE TABLE IF NOT EXISTS money_plans (
+    id TEXT PRIMARY KEY,
+    budgetId TEXT NOT NULL,
+    categoryId TEXT NOT NULL,
+    monthStart TEXT NOT NULL,
+    minAmount REAL,
+    maxAmount REAL,
+    contribution REAL,
+    deleted INTEGER NOT NULL DEFAULT 0,
+    createdAt INTEGER NOT NULL,
+    updatedAt INTEGER NOT NULL,
+    FOREIGN KEY (budgetId) REFERENCES budgets(id) ON DELETE CASCADE,
+    FOREIGN KEY (categoryId) REFERENCES categories(id) ON DELETE CASCADE
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_money_plans_budget ON money_plans(budgetId);
+
+  CREATE TABLE IF NOT EXISTS money_rules (
+    id TEXT PRIMARY KEY,
+    budgetId TEXT NOT NULL,
+    match TEXT NOT NULL,
+    categoryId TEXT,
+    markTransfer INTEGER NOT NULL DEFAULT 0,
+    deleted INTEGER NOT NULL DEFAULT 0,
+    createdAt INTEGER NOT NULL,
+    updatedAt INTEGER NOT NULL,
+    FOREIGN KEY (budgetId) REFERENCES budgets(id) ON DELETE CASCADE,
+    FOREIGN KEY (categoryId) REFERENCES categories(id) ON DELETE CASCADE
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_money_rules_budget ON money_rules(budgetId);
 `);
 
 // Add a column to an existing table if missing. Returns true when added.
@@ -172,6 +204,42 @@ addColumnIfMissing('person_notes', 'repeatYearly', 'INTEGER NOT NULL DEFAULT 0')
 if (addColumnIfMissing('categories', 'targetAmount', 'REAL')) {
   db.exec(`UPDATE categories SET targetAmount = targetHours
     WHERE budgetId IN (SELECT id FROM budgets WHERE type = 'money')`);
+}
+
+// Money redesign columns
+addColumnIfMissing('categories', 'goalBalance', 'REAL');
+addColumnIfMissing('categories', 'location', 'TEXT');
+addColumnIfMissing('transactions', 'account', 'TEXT');
+addColumnIfMissing('transactions', 'ruleId', 'TEXT');
+
+// Migrate: money-budget categories gain a nature (flow/fund) derived from rollover,
+// and the current month's plan is seeded from each category's targetAmount.
+if (addColumnIfMissing('categories', 'nature', 'TEXT')) {
+  const ts = Date.now();
+  const moneyBudgetIds = db.prepare("SELECT id FROM budgets WHERE type = 'money'").all().map(b => b.id);
+  if (moneyBudgetIds.length > 0) {
+    const inClause = moneyBudgetIds.map(() => '?').join(', ');
+    // (a) rollover categories become funds (earmarked); the rest are flow.
+    db.prepare(`UPDATE categories SET nature = 'fund', location = 'earmarked', updatedAt = ?
+      WHERE rollover = 1 AND budgetId IN (${inClause})`).run(ts, ...moneyBudgetIds);
+    db.prepare(`UPDATE categories SET nature = 'flow', updatedAt = ?
+      WHERE (rollover = 0 OR rollover IS NULL) AND budgetId IN (${inClause})`).run(ts, ...moneyBudgetIds);
+
+    // (b) Seed current month's plan from targetAmount (as maxAmount).
+    const monthStart = (() => {
+      const d = new Date();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      return `${d.getFullYear()}-${m}-01`;
+    })();
+    const seedCats = db.prepare(`SELECT id, budgetId, targetAmount FROM categories
+      WHERE deleted = 0 AND targetAmount > 0 AND budgetId IN (${inClause})`).all(...moneyBudgetIds);
+    const insertPlan = db.prepare(`INSERT INTO money_plans
+      (id, budgetId, categoryId, monthStart, minAmount, maxAmount, contribution, deleted, createdAt, updatedAt)
+      VALUES (?, ?, ?, ?, NULL, ?, NULL, 0, ?, ?)`);
+    for (const c of seedCats) {
+      insertPlan.run(require('crypto').randomUUID(), c.budgetId, c.id, monthStart, c.targetAmount, ts, ts);
+    }
+  }
 }
 
 // Migrate: people belong to a people-list (budgets row with type 'people').
@@ -226,18 +294,23 @@ function upsertRow(table, row, columns) {
 // REST endpoints. Mutations happen in IndexedDB on the client and sync over.
 
 const BUDGET_COLS = ['id', 'name', 'type', 'periodType', 'periodStartDay', 'deleted', 'createdAt', 'updatedAt'];
-const CATEGORY_COLS = ['id', 'budgetId', 'parentId', 'name', 'color', 'targetHours', 'targetAmount', 'minHours', 'maxHours', 'sortOrder', 'rollover', 'deleted', 'createdAt', 'updatedAt'];
+const CATEGORY_COLS = ['id', 'budgetId', 'parentId', 'name', 'color', 'targetHours', 'targetAmount', 'minHours', 'maxHours', 'sortOrder', 'rollover', 'nature', 'goalBalance', 'location', 'deleted', 'createdAt', 'updatedAt'];
 const ENTRY_COLS = ['id', 'budgetId', 'categoryId', 'date', 'hours', 'startTime', 'endTime', 'note', 'deleted', 'createdAt', 'updatedAt'];
 const EVENT_COLS = ['id', 'budgetId', 'date', 'startAt', 'endAt', 'hours', 'description', 'categories', 'deleted', 'createdAt', 'updatedAt'];
-const TRANSACTION_COLS = ['id', 'budgetId', 'categoryId', 'date', 'amount', 'payee', 'memo', 'fitid', 'trntype', 'transferId', 'deleted', 'createdAt', 'updatedAt'];
+const TRANSACTION_COLS = ['id', 'budgetId', 'categoryId', 'date', 'amount', 'payee', 'memo', 'fitid', 'trntype', 'transferId', 'account', 'ruleId', 'deleted', 'createdAt', 'updatedAt'];
 const OVERRIDE_COLS = ['id', 'budgetId', 'categoryId', 'periodStart', 'targetHours', 'minHours', 'maxHours', 'deleted', 'createdAt', 'updatedAt'];
 const PEOPLE_COLS = ['id', 'budgetId', 'name', 'tag', 'deleted', 'createdAt', 'updatedAt'];
 const PERSON_NOTE_COLS = ['id', 'personId', 'text', 'pinned', 'expiresAt', 'remindOn', 'repeatYearly', 'deleted', 'createdAt', 'updatedAt'];
+const MONEY_PLAN_COLS = ['id', 'budgetId', 'categoryId', 'monthStart', 'minAmount', 'maxAmount', 'contribution', 'deleted', 'createdAt', 'updatedAt'];
+const MONEY_RULE_COLS = ['id', 'budgetId', 'match', 'categoryId', 'markTransfer', 'deleted', 'createdAt', 'updatedAt'];
 
 // --- OFX Import ---
 
 function parseOFX(ofxText) {
   const transactions = [];
+  // Account id lives in the statement header (outside STMTTRN blocks).
+  const acctMatch = ofxText.match(/<ACCTID>([^<\r\n]+)/i);
+  const account = acctMatch ? acctMatch[1].trim() : null;
   // Match each STMTTRN block
   const trnRegex = /<STMTTRN>([\s\S]*?)<\/STMTTRN>/gi;
   let match;
@@ -261,6 +334,7 @@ function parseOFX(ofxText) {
       trntype: get('TRNTYPE'),
       payee: get('NAME'),
       memo: get('MEMO'),
+      account,
     });
   }
   return transactions;
@@ -297,7 +371,7 @@ app.post('/api/budgets/:id/transactions/batch', (req, res) => {
 // This is how deletions propagate to other devices.
 
 app.post('/api/sync', (req, res) => {
-  const { lastSyncAt = 0, budgets: cBudgets = [], categories: cCategories = [], entries: cEntries = [], events: cEvents = [], periodOverrides: cOverrides = [], transactions: cTransactions = [], people: cPeople = [], personNotes: cPersonNotes = [] } = req.body;
+  const { lastSyncAt = 0, budgets: cBudgets = [], categories: cCategories = [], entries: cEntries = [], events: cEvents = [], periodOverrides: cOverrides = [], transactions: cTransactions = [], people: cPeople = [], personNotes: cPersonNotes = [], moneyPlans: cMoneyPlans = [], moneyRules: cMoneyRules = [] } = req.body;
   const now = Date.now();
 
   const syncTransaction = db.transaction(() => {
@@ -311,6 +385,8 @@ app.post('/api/sync', (req, res) => {
     // People before notes: person_notes has an FK to people
     for (const r of cPeople) upsertRow('people', { budgetId: null, tag: null, deleted: 0, ...r }, PEOPLE_COLS);
     for (const r of cPersonNotes) upsertRow('person_notes', { pinned: 0, expiresAt: null, remindOn: null, repeatYearly: 0, deleted: 0, ...r }, PERSON_NOTE_COLS);
+    for (const r of cMoneyPlans) upsertRow('money_plans', { minAmount: null, maxAmount: null, contribution: null, deleted: 0, ...r }, MONEY_PLAN_COLS);
+    for (const r of cMoneyRules) upsertRow('money_rules', { categoryId: null, markTransfer: 0, deleted: 0, ...r }, MONEY_RULE_COLS);
 
     // Return ALL server records changed since lastSyncAt (including deleted)
     const sBudgets = db.prepare('SELECT * FROM budgets WHERE updatedAt > ?').all(lastSyncAt);
@@ -321,8 +397,10 @@ app.post('/api/sync', (req, res) => {
     const sTransactions = db.prepare('SELECT * FROM transactions WHERE updatedAt > ?').all(lastSyncAt);
     const sPeople = db.prepare('SELECT * FROM people WHERE updatedAt > ?').all(lastSyncAt);
     const sPersonNotes = db.prepare('SELECT * FROM person_notes WHERE updatedAt > ?').all(lastSyncAt);
+    const sMoneyPlans = db.prepare('SELECT * FROM money_plans WHERE updatedAt > ?').all(lastSyncAt);
+    const sMoneyRules = db.prepare('SELECT * FROM money_rules WHERE updatedAt > ?').all(lastSyncAt);
 
-    return { budgets: sBudgets, categories: sCategories, entries: sEntries, events: sEvents, periodOverrides: sOverrides, transactions: sTransactions, people: sPeople, personNotes: sPersonNotes, syncedAt: now };
+    return { budgets: sBudgets, categories: sCategories, entries: sEntries, events: sEvents, periodOverrides: sOverrides, transactions: sTransactions, people: sPeople, personNotes: sPersonNotes, moneyPlans: sMoneyPlans, moneyRules: sMoneyRules, syncedAt: now };
   });
 
   res.json(syncTransaction());

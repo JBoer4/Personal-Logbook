@@ -32,6 +32,8 @@ export async function sync() {
     const dirtyTransactions = await db.getDirtyTransactions();
     const dirtyPeople = await db.getDirtyPeople();
     const dirtyPersonNotes = await db.getDirtyPersonNotes();
+    const dirtyMoneyPlans = await db.getDirtyMoneyPlans();
+    const dirtyMoneyRules = await db.getDirtyMoneyRules();
 
     const payload = {
       lastSyncAt,
@@ -43,6 +45,8 @@ export async function sync() {
       transactions: dirtyTransactions.map(db.cleanRecord),
       people: dirtyPeople.map(db.cleanRecord),
       personNotes: dirtyPersonNotes.map(db.cleanRecord),
+      moneyPlans: dirtyMoneyPlans.map(db.cleanRecord),
+      moneyRules: dirtyMoneyRules.map(db.cleanRecord),
     };
 
     const result = await api.sync(payload);
@@ -58,6 +62,8 @@ export async function sync() {
     for (const r of result.transactions || []) await db.putTransactionClean(r);
     for (const r of result.people || []) await db.putPersonClean(r);
     for (const r of result.personNotes || []) await db.putPersonNoteClean(r);
+    for (const r of result.moneyPlans || []) await db.putMoneyPlanClean(r);
+    for (const r of result.moneyRules || []) await db.putMoneyRuleClean(r);
 
     await db.setMeta('lastSyncAt', result.syncedAt);
     notify('synced');
@@ -98,6 +104,8 @@ export function startSyncLoop() {
       ...(await db.getDirtyTransactions()),
       ...(await db.getDirtyPeople()),
       ...(await db.getDirtyPersonNotes()),
+      ...(await db.getDirtyMoneyPlans()),
+      ...(await db.getDirtyMoneyRules()),
     ];
     if (dirty.length > 0) sync().catch(() => {});
   }, 30000);

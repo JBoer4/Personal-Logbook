@@ -2211,3 +2211,594 @@ input:focus {
   font-weight: 600;
   font-size: 0.8rem;
 }
+
+/* ============================================================
+   Money redesign — pipeline strip, headline, funds, plan view
+   (appended 2026-07: MoneyHome rebuild + new MoneyPlan view)
+   ============================================================ */
+
+/* Pipeline strip: Import → Plan → Categorize status row */
+
+.pipeline-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0 16px;
+}
+
+.pipeline-todo {
+  background: rgba(99, 102, 241, 0.15);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-sm);
+  color: var(--accent);
+  font-size: 0.85rem;
+  font-weight: 600;
+  padding: 8px 12px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.pipeline-done {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-dim);
+  font-size: 0.8rem;
+  padding: 8px 12px;
+  cursor: pointer;
+}
+
+span.pipeline-done {
+  cursor: default;
+}
+
+/* Headline: Income · Planned · Free */
+
+.money-headline {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 20px;
+}
+
+.headline-item {
+  flex: 1;
+  background: var(--bg-input);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.headline-label {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-dim);
+}
+
+.headline-value {
+  font-size: 1.05rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* Free is the hero number of partial budgeting */
+.headline-hero .headline-value {
+  font-size: 1.3rem;
+}
+
+.free-pos { color: #22c55e; }
+.free-neg { color: #ef4444; }
+
+/* Funds section */
+
+.funds-section {
+  margin: 16px 0;
+}
+
+.funds-section h3 {
+  font-size: 0.9rem;
+  color: var(--text-dim);
+  margin-bottom: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.fund-card {
+  background: var(--bg-input);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  margin-bottom: 8px;
+}
+
+.fund-card-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.fund-name {
+  font-size: 0.9rem;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fund-location {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 1px 7px;
+  flex-shrink: 0;
+}
+
+.fund-balance {
+  margin-left: auto;
+  font-size: 0.95rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+
+.fund-goal {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.fund-goal-bar-wrap {
+  flex: 1;
+  height: 8px;
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.fund-goal-bar {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.3s;
+}
+
+.fund-goal-label {
+  font-size: 0.75rem;
+  color: var(--text-dim);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.fund-meta {
+  display: flex;
+  gap: 12px;
+  margin-top: 6px;
+  font-size: 0.78rem;
+  color: var(--text-dim);
+}
+
+.checking-floor {
+  margin-top: 4px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+  font-size: 0.85rem;
+  color: var(--text-dim);
+}
+
+.checking-floor strong {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.checking-floor-hint {
+  margin-left: 8px;
+  font-size: 0.75rem;
+  font-style: italic;
+}
+
+/* Plan view (MoneyPlan.js) */
+
+.plan-view h2 {
+  margin-bottom: 4px;
+}
+
+.plan-editor {
+  margin: 12px 0;
+}
+
+.plan-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.plan-row-label {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.plan-row-name {
+  font-size: 0.88rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.plan-goal-hint {
+  font-size: 0.72rem;
+  color: var(--text-dim);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.plan-inputs {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.plan-input-wrap {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.plan-input-label {
+  font-size: 0.7rem;
+  color: var(--text-dim);
+}
+
+.plan-input {
+  width: 76px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-size: 0.85rem;
+  padding: 5px 7px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.plan-total {
+  margin: 12px 0;
+  padding: 10px 12px;
+  background: var(--bg-input);
+  border-radius: var(--radius-sm);
+  font-size: 0.9rem;
+  text-align: right;
+  color: var(--text-dim);
+}
+
+.plan-total strong {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Copy-from-month picker (empty state and existing-plan variants) */
+
+.plan-copy-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 12px 0;
+}
+
+.plan-copy-title {
+  font-size: 0.8rem;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.plan-copy-month {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-size: 0.88rem;
+  padding: 9px 12px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.plan-copy-month:hover {
+  border-color: var(--accent);
+}
+
+.plan-copy-count {
+  font-size: 0.75rem;
+  color: var(--text-dim);
+  flex-shrink: 0;
+}
+
+.plan-copy-section {
+  margin-top: 8px;
+}
+
+.plan-copy-subtitle {
+  display: block;
+  font-size: 0.7rem;
+  font-weight: 400;
+  color: var(--text-dim);
+}
+
+/* ============================================================
+   Money redesign — MoneyCategories nature toggle + fund fields
+   (appended 2026-07-04: flow/fund replaces targetAmount/rollover)
+   ============================================================ */
+
+.cat-plan-hint {
+  margin-top: -12px;
+  font-size: 0.78rem;
+}
+
+.cat-nature-toggle {
+  display: flex;
+  flex-shrink: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.cat-nature-option {
+  background: var(--bg-input);
+  border: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 0.75rem;
+  padding: 6px 10px;
+  white-space: nowrap;
+}
+
+.cat-nature-option + .cat-nature-option {
+  border-left: 1px solid var(--border);
+}
+
+.cat-nature-option.active {
+  background: var(--accent);
+  color: white;
+}
+
+.cat-fund-meta {
+  flex-wrap: wrap;
+}
+
+.cat-fund-goal-input {
+  width: 56px;
+}
+
+.cat-fund-location-select {
+  max-width: none;
+  flex: 1 1 auto;
+  min-width: 160px;
+}
+
+/* ============================================================
+   Money redesign — Transactions transfer/adjustment toggles,
+   rule badges, rules manager; ImportOFX rule preview note;
+   MoneyHome fund balance adjustment
+   (appended 2026-07-04)
+   ============================================================ */
+
+.txn-row-muted {
+  opacity: 0.6;
+}
+
+.txn-badge {
+  flex-shrink: 0;
+  font-size: 0.65rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  padding: 2px 6px;
+  border-radius: 10px;
+  white-space: nowrap;
+}
+
+.txn-badge-auto {
+  background: rgba(99, 102, 241, 0.18);
+  color: #818cf8;
+}
+
+.txn-badge-transfer {
+  background: rgba(148, 163, 184, 0.18);
+  color: var(--text-dim);
+}
+
+.txn-badge-adjustment {
+  background: rgba(234, 179, 8, 0.18);
+  color: #eab308;
+}
+
+.txn-account-tag {
+  flex-shrink: 0;
+  font-size: 0.7rem;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
+.txn-transfer-toggle {
+  flex-shrink: 0;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-dim);
+  font-size: 0.85rem;
+  line-height: 1;
+  padding: 6px 8px;
+  cursor: pointer;
+}
+
+.txn-transfer-toggle.active {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.txn-rule-btn {
+  flex-shrink: 0;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-dim);
+  font-size: 0.7rem;
+  padding: 6px 8px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.rules-section {
+  margin-bottom: 12px;
+}
+
+.rules-toggle {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  font-size: 0.8rem;
+  padding: 4px 0;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.rules-caret {
+  font-size: 0.7rem;
+}
+
+.rules-panel {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 10px;
+  margin-top: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.rules-empty {
+  font-size: 0.8rem;
+  color: var(--text-dim);
+  margin: 0;
+}
+
+.rule-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.8rem;
+}
+
+.rule-match {
+  flex-shrink: 0;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 40%;
+}
+
+.rule-action {
+  flex: 1;
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rule-delete {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 0.85rem;
+  padding: 2px 4px;
+}
+
+.rule-delete:hover {
+  color: var(--danger);
+}
+
+.rule-add-btn {
+  align-self: flex-start;
+  font-size: 0.8rem;
+  padding: 6px 10px;
+}
+
+.rule-add-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.rule-transfer-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.8rem;
+  color: var(--text-dim);
+}
+
+.import-rule-note {
+  flex-shrink: 0;
+  font-size: 0.7rem;
+  color: #818cf8;
+  white-space: nowrap;
+}
+
+.import-result-rules {
+  font-size: 0.85rem;
+  color: var(--text-dim);
+}
+
+.fund-adjust-btn {
+  flex-shrink: 0;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-dim);
+  font-size: 0.7rem;
+  padding: 4px 8px;
+  cursor: pointer;
+}
+
+.fund-adjust-form {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+  flex-wrap: wrap;
+}
+
+.fund-adjust-label {
+  font-size: 0.78rem;
+  color: var(--text-dim);
+}
+
+.fund-adjust-input {
+  width: 90px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  font-size: 0.85rem;
+  padding: 6px 8px;
+}

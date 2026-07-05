@@ -4,10 +4,11 @@ import { db } from '../db.js';
 import { navigate } from '../router.js';
 import { syncAfterMutation } from '../sync.js';
 import { api } from '../api.js';
-import { uuid, now, formatCurrency } from '../utils.js';
+import { uuid, now, formatCurrency, TRN_TRANSFER, isTransferTxn } from '../utils.js';
 
 export function ImportOFX({ budgetId }) {
   const [parsed, setParsed] = useState(null);
+  const [categories, setCategories] = useState([]);
   const [importing, setImporting] = useState(false);
   const [error, setError] = useState(null);
   const [result, setResult] = useState(null);
@@ -26,7 +27,27 @@ export function ImportOFX({ budgetId }) {
         setError('No transactions found in file');
         return;
       }
-      setParsed(transactions);
+
+      const cats = await db.getCategories(budgetId);
+      setCategories(cats);
+
+      // Apply categorization rules client-side (first match wins, oldest rule first).
+      // Rules only ever apply at import time — never retro-applied.
+      const rules = await db.getMoneyRules(budgetId);
+      rules.sort((a, b) => a.createdAt - b.createdAt);
+      const withRules = transactions.map(t => {
+        const haystack = `${t.payee || ''} ${t.memo || ''}`.toLowerCase();
+        const rule = rules.find(r => r.match && haystack.includes(r.match.toLowerCase()));
+        if (!rule) return t;
+        return {
+          ...t,
+          categoryId: rule.categoryId || null,
+          ruleId: rule.id,
+          trntype: rule.markTransfer ? TRN_TRANSFER : t.trntype,
+        };
+      });
+
+      setParsed(withRules);
     } catch (err) {
       setError('Failed to parse file: ' + err.message);
     }
@@ -39,23 +60,38 @@ export function ImportOFX({ budgetId }) {
 
     try {
       // Skip transactions already imported (banks resend overlapping
-      // statements; FITID uniquely identifies a transaction within an account)
+      // statements; FITID uniquely identifies a transaction within an account).
+      // Legacy records have no account tag — treat those as matching any
+      // account so old imports still dedup. Different accounts with a
+      // coincidentally equal FITID are NOT considered duplicates.
       const existing = await db.getTransactions(budgetId);
-      const existingFitids = new Set(existing.map(t => t.fitid).filter(Boolean));
-      const fresh = parsed.filter(t => !t.fitid || !existingFitids.has(t.fitid));
+      const existingByFitid = new Map();
+      for (const e of existing) {
+        if (!e.fitid) continue;
+        if (!existingByFitid.has(e.fitid)) existingByFitid.set(e.fitid, []);
+        existingByFitid.get(e.fitid).push(e);
+      }
+      const fresh = parsed.filter(t => {
+        if (!t.fitid) return true;
+        const matches = existingByFitid.get(t.fitid);
+        if (!matches) return true;
+        return !matches.some(e => !e.account || e.account === t.account);
+      });
       const skipped = parsed.length - fresh.length;
 
       const ts = now();
       const records = fresh.map(t => ({
         id: uuid(),
         budgetId,
-        categoryId: null,
+        categoryId: t.categoryId || null,
         date: t.date,
         amount: t.amount,
         payee: t.payee || '',
         memo: t.memo || '',
         fitid: t.fitid || '',
         trntype: t.trntype || '',
+        account: t.account || '',
+        ruleId: t.ruleId || '',
         createdAt: ts,
         updatedAt: ts,
       }));
@@ -71,7 +107,8 @@ export function ImportOFX({ budgetId }) {
         syncAfterMutation();
       }
 
-      setResult({ count: records.length, skipped });
+      const ruleCount = records.filter(r => r.ruleId).length;
+      setResult({ count: records.length, skipped, ruleCount });
     } catch (err) {
       setError('Import failed: ' + err.message);
     } finally {
@@ -85,6 +122,7 @@ export function ImportOFX({ budgetId }) {
         <h2>Import Complete</h2>
         <div class="import-result">
           <p>${result.count} transactions imported${result.skipped > 0 ? `, ${result.skipped} skipped (already imported)` : ''}</p>
+          ${result.ruleCount > 0 && html`<p class="import-result-rules">${result.ruleCount} auto-categorized by rules</p>`}
           <button class="btn" onClick=${() => navigate('/budget/' + budgetId + '/transactions')}>
             View Transactions
           </button>
@@ -95,6 +133,8 @@ export function ImportOFX({ budgetId }) {
       </div>
     `;
   }
+
+  const catById = Object.fromEntries(categories.map(c => [c.id, c]));
 
   return html`
     <div class="import-view">
@@ -116,6 +156,11 @@ export function ImportOFX({ budgetId }) {
               <div class="import-row" key=${i}>
                 <span class="import-date">${t.date || '—'}</span>
                 <span class="import-payee">${t.payee || t.memo || '—'}</span>
+                ${t.ruleId && html`
+                  <span class="import-rule-note" title="categorized by rule">
+                    ${isTransferTxn(t) ? 'transfer' : (catById[t.categoryId]?.name || 'categorized')}
+                  </span>
+                `}
                 <span class="import-amount ${t.amount < 0 ? 'negative' : 'positive'}">
                   ${formatCurrency(t.amount)}
                 </span>

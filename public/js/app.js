@@ -11,6 +11,7 @@ import { Categories } from './components/Categories.js';
 import { History } from './components/History.js';
 import { MoneyHome } from './components/MoneyHome.js';
 import { MoneyCategories } from './components/MoneyCategories.js';
+import { MoneyPlan } from './components/MoneyPlan.js';
 import { Transactions } from './components/Transactions.js';
 import { ImportOFX } from './components/ImportOFX.js';
 import { People } from './components/People.js';
@@ -42,6 +43,11 @@ function BudgetRouter({ budgetId, view: viewName }) {
     return isMoney
       ? html`<${MoneyCategories} budgetId=${budgetId} />`
       : html`<${Categories} budgetId=${budgetId} />`;
+  }
+  if (viewName === 'plan') {
+    return isMoney
+      ? html`<${MoneyPlan} budgetId=${budgetId} />`
+      : html`<div class="empty-state">Not available for this budget</div>`;
   }
   if (viewName === 'transactions') {
     return html`<${Transactions} budgetId=${budgetId} />`;
@@ -75,6 +81,8 @@ function App() {
     view = html`<${BudgetRouter} budgetId=${params.id} view="categories" />`;
   } else if ((params = match('/budget/:id/history'))) {
     view = html`<${History} budgetId=${params.id} />`;
+  } else if ((params = match('/budget/:id/plan'))) {
+    view = html`<${BudgetRouter} budgetId=${params.id} view="plan" />`;
   } else if ((params = match('/budget/:id/transactions'))) {
     view = html`<${BudgetRouter} budgetId=${params.id} view="transactions" />`;
   } else if ((params = match('/budget/:id/import'))) {
@@ -88,13 +96,14 @@ function App() {
   const isHome = !match('/budget/:id') && !match('/budget/:id/log') &&
     !match('/budget/:id/log/:date') && !match('/budget/:id/categories') &&
     !match('/budget/:id/history') && !match('/budget/:id/transactions') &&
-    !match('/budget/:id/import') && !match('/budget/:id/person/:personId');
+    !match('/budget/:id/import') && !match('/budget/:id/plan') &&
+    !match('/budget/:id/person/:personId');
 
   // Extract budgetId for back navigation
   const budgetMatch = match('/budget/:id/log') || match('/budget/:id/log/:date') ||
     match('/budget/:id/categories') || match('/budget/:id/history') ||
     match('/budget/:id/transactions') || match('/budget/:id/import') ||
-    match('/budget/:id/person/:personId');
+    match('/budget/:id/plan') || match('/budget/:id/person/:personId');
 
   return html`
     <div class="app-shell">
