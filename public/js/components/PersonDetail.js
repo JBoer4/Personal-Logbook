@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'preact/hooks';
 import { html } from 'htm/preact';
 import { db } from '../db.js';
 import { navigate } from '../router.js';
-import { syncAfterMutation, debouncedSync } from '../sync.js';
+import { syncAfterMutation, debouncedSync, useSyncRefresh } from '../sync.js';
 import { uuid, now, formatShort, parseDate, parseTags, isNoteExpired, today } from '../utils.js';
 
 function formatNoteDate(ts) {
@@ -36,6 +36,7 @@ export function PersonDetail({ budgetId, personId }) {
   }
 
   useEffect(() => { setLoading(true); load(); }, [personId]);
+  useSyncRefresh(load);
 
   async function savePerson(updates) {
     const updated = { ...person, ...updates, updatedAt: now() };

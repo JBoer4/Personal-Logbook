@@ -1,14 +1,29 @@
 // Sync engine: push dirty records, pull changes
 
+import { useEffect } from 'preact/hooks';
 import { db } from './db.js';
 import { api } from './api.js';
 
 let syncing = false;
 let syncListeners = [];
+let appliedListeners = [];
 
 export function onSyncStatus(fn) {
   syncListeners.push(fn);
   return () => { syncListeners = syncListeners.filter(f => f !== fn); };
+}
+
+// Fires only when a pull applied records this device hadn't seen —
+// views use it (via useSyncRefresh) to reload in place.
+export function onSyncApplied(fn) {
+  appliedListeners.push(fn);
+  return () => { appliedListeners = appliedListeners.filter(f => f !== fn); };
+}
+
+// Re-run a view's load() whenever sync pulls down changes. Subscribes
+// fresh each render so the callback never closes over stale props.
+export function useSyncRefresh(fn) {
+  useEffect(() => onSyncApplied(fn));
 }
 
 function notify(status) {
@@ -24,16 +39,16 @@ export async function sync() {
     const lastSyncAt = (await db.getMeta('lastSyncAt')) || 0;
 
     // Gather dirty records
-    const dirtyBudgets = await db.getDirtyBudgets();
-    const dirtyCategories = await db.getDirtyCategories();
-    const dirtyEntries = await db.getDirtyEntries();
-    const dirtyEvents = await db.getDirtyEvents();
-    const dirtyOverrides = await db.getDirtyOverrides();
-    const dirtyTransactions = await db.getDirtyTransactions();
-    const dirtyPeople = await db.getDirtyPeople();
-    const dirtyPersonNotes = await db.getDirtyPersonNotes();
-    const dirtyMoneyPlans = await db.getDirtyMoneyPlans();
-    const dirtyMoneyRules = await db.getDirtyMoneyRules();
+    const [
+      dirtyBudgets, dirtyCategories, dirtyEntries, dirtyEvents,
+      dirtyOverrides, dirtyTransactions, dirtyPeople, dirtyPersonNotes,
+      dirtyMoneyPlans, dirtyMoneyRules, dirtyDayNotes,
+    ] = await Promise.all([
+      db.getDirtyBudgets(), db.getDirtyCategories(), db.getDirtyEntries(),
+      db.getDirtyEvents(), db.getDirtyOverrides(), db.getDirtyTransactions(),
+      db.getDirtyPeople(), db.getDirtyPersonNotes(),
+      db.getDirtyMoneyPlans(), db.getDirtyMoneyRules(), db.getDirtyDayNotes(),
+    ]);
 
     const payload = {
       lastSyncAt,
@@ -47,6 +62,7 @@ export async function sync() {
       personNotes: dirtyPersonNotes.map(db.cleanRecord),
       moneyPlans: dirtyMoneyPlans.map(db.cleanRecord),
       moneyRules: dirtyMoneyRules.map(db.cleanRecord),
+      dayNotes: dirtyDayNotes.map(db.cleanRecord),
     };
 
     const result = await api.sync(payload);
@@ -54,19 +70,24 @@ export async function sync() {
     // Merge all server records into local (clean, not dirty).
     // This covers both server-side changes AND our pushed records
     // (the server returns everything changed since lastSyncAt).
-    for (const r of result.budgets || []) await db.putBudgetClean(r);
-    for (const r of result.categories || []) await db.putCategoryClean(r);
-    for (const r of result.entries || []) await db.putEntryClean(r);
-    for (const r of result.events || []) await db.putEventClean(r);
-    for (const r of result.periodOverrides || []) await db.putOverrideClean(r);
-    for (const r of result.transactions || []) await db.putTransactionClean(r);
-    for (const r of result.people || []) await db.putPersonClean(r);
-    for (const r of result.personNotes || []) await db.putPersonNoteClean(r);
-    for (const r of result.moneyPlans || []) await db.putMoneyPlanClean(r);
-    for (const r of result.moneyRules || []) await db.putMoneyRuleClean(r);
+    // putClean reports whether each record was actually new here;
+    // our own pushed records come back unchanged and don't count.
+    let changed = 0;
+    for (const r of result.budgets || []) changed += await db.putBudgetClean(r) ? 1 : 0;
+    for (const r of result.categories || []) changed += await db.putCategoryClean(r) ? 1 : 0;
+    for (const r of result.entries || []) changed += await db.putEntryClean(r) ? 1 : 0;
+    for (const r of result.events || []) changed += await db.putEventClean(r) ? 1 : 0;
+    for (const r of result.periodOverrides || []) changed += await db.putOverrideClean(r) ? 1 : 0;
+    for (const r of result.transactions || []) changed += await db.putTransactionClean(r) ? 1 : 0;
+    for (const r of result.people || []) changed += await db.putPersonClean(r) ? 1 : 0;
+    for (const r of result.personNotes || []) changed += await db.putPersonNoteClean(r) ? 1 : 0;
+    for (const r of result.moneyPlans || []) changed += await db.putMoneyPlanClean(r) ? 1 : 0;
+    for (const r of result.moneyRules || []) changed += await db.putMoneyRuleClean(r) ? 1 : 0;
+    for (const r of result.dayNotes || []) changed += await db.putDayNoteClean(r) ? 1 : 0;
 
     await db.setMeta('lastSyncAt', result.syncedAt);
     notify('synced');
+    if (changed > 0) appliedListeners.forEach(fn => fn());
   } catch (e) {
     console.warn('Sync failed:', e.message);
     notify('offline');
@@ -88,27 +109,21 @@ export function debouncedSync(delay = 500) {
   debounceTimer = setTimeout(() => syncAfterMutation(), delay);
 }
 
-// Retry loop
 export function startSyncLoop() {
   // Initial sync
   sync().catch(() => {});
 
-  // Retry every 30s if there are dirty records
-  setInterval(async () => {
-    const dirty = [
-      ...(await db.getDirtyBudgets()),
-      ...(await db.getDirtyCategories()),
-      ...(await db.getDirtyEntries()),
-      ...(await db.getDirtyEvents()),
-      ...(await db.getDirtyOverrides()),
-      ...(await db.getDirtyTransactions()),
-      ...(await db.getDirtyPeople()),
-      ...(await db.getDirtyPersonNotes()),
-      ...(await db.getDirtyMoneyPlans()),
-      ...(await db.getDirtyMoneyRules()),
-    ];
-    if (dirty.length > 0) sync().catch(() => {});
+  // Poll while visible. This is what keeps a device with no local edits
+  // up to date — an empty pull is one tiny changes-since request.
+  setInterval(() => {
+    if (document.visibilityState === 'visible') sync().catch(() => {});
   }, 30000);
+
+  // PWA resumed from background / tab refocused: catch up immediately
+  // rather than waiting for the next poll tick.
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') sync().catch(() => {});
+  });
 
   // Sync when coming back online
   window.addEventListener('online', () => sync().catch(() => {}));

@@ -1,10 +1,14 @@
-const CACHE_NAME = 'budget-app-v15';
+const CACHE_NAME = 'budget-app-v17';
 const ASSETS = [
   '/',
   '/index.html',
   '/style.css',
   '/manifest.json',
   '/icon.svg',
+  '/fonts/hanken-grotesk-latin.woff2',
+  '/fonts/hanken-grotesk-latin-ext.woff2',
+  '/fonts/schibsted-grotesk-latin.woff2',
+  '/fonts/schibsted-grotesk-latin-ext.woff2',
   '/js/app.js',
   '/js/router.js',
   '/js/db.js',
@@ -22,6 +26,7 @@ const ASSETS = [
   '/js/components/History.js',
   '/js/components/MoneyHome.js',
   '/js/components/MoneyCategories.js',
+  '/js/components/MoneyPlan.js',
   '/js/components/Transactions.js',
   '/js/components/ImportOFX.js',
   '/js/components/People.js',

@@ -11,6 +11,16 @@ export function now() {
   return Date.now();
 }
 
+// Compact age for the sync indicator: "3m", "2h", "5d"
+export function formatAge(ms) {
+  const m = Math.floor(ms / 60000);
+  if (m < 1) return 'now';
+  if (m < 60) return `${m}m`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h`;
+  return `${Math.floor(h / 24)}d`;
+}
+
 // Get Sunday-based week start for a given date
 export function getWeekStart(date = new Date()) {
   const d = new Date(date);

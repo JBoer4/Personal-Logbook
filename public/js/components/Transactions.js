@@ -2,7 +2,7 @@ import { useState, useEffect } from 'preact/hooks';
 import { html } from 'htm/preact';
 import { db } from '../db.js';
 import { navigate } from '../router.js';
-import { syncAfterMutation, debouncedSync } from '../sync.js';
+import { syncAfterMutation, debouncedSync, useSyncRefresh } from '../sync.js';
 import {
   uuid, now, today, getMonthLabel, getMonthDates, offsetMonthDate, formatCurrency,
   TRN_TRANSFER, isTransferTxn, isAdjustmentTxn, isRealTxn,
@@ -48,6 +48,7 @@ export function Transactions({ budgetId }) {
   }
 
   useEffect(() => { setLoading(true); load(); }, [budgetId, monthOffset]);
+  useSyncRefresh(load);
 
   async function setCategoryForTxn(txnId, categoryId) {
     const txn = transactions.find(t => t.id === txnId);

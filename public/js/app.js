@@ -4,6 +4,7 @@ import { html } from 'htm/preact';
 import { useRoute, navigate } from './router.js';
 import { startSyncLoop, onSyncStatus } from './sync.js';
 import { db } from './db.js';
+import { formatAge } from './utils.js';
 import { Dashboard } from './components/Dashboard.js';
 import { BudgetHome } from './components/BudgetHome.js';
 import { DailyLog } from './components/DailyLog.js';
@@ -61,10 +62,23 @@ function BudgetRouter({ budgetId, view: viewName }) {
 function App() {
   const { match } = useRoute();
   const [syncStatus, setSyncStatus] = useState('');
+  const [lastSyncedAt, setLastSyncedAt] = useState(null);
+  const [, setAgeTick] = useState(0);
 
   useEffect(() => {
     startSyncLoop();
-    return onSyncStatus(setSyncStatus);
+    // Seed "last synced" from the previous session, then track live syncs.
+    db.getMeta('lastSyncedWallClock').then(v => { if (v) setLastSyncedAt(prev => prev ?? v); });
+    const ageTimer = setInterval(() => setAgeTick(t => t + 1), 60000);
+    const unsub = onSyncStatus(status => {
+      setSyncStatus(status);
+      if (status === 'synced') {
+        const ts = Date.now();
+        setLastSyncedAt(ts);
+        db.setMeta('lastSyncedWallClock', ts);
+      }
+    });
+    return () => { clearInterval(ageTimer); unsub(); };
   }, []);
 
   // Route matching
@@ -117,10 +131,22 @@ function App() {
             }
           }}>←</button>
         `}
-        <h1 class="app-title">Budget</h1>
-        <div class="sync-indicator ${syncStatus}"
-          title=${syncStatus === 'syncing' ? 'Syncing...' : syncStatus === 'synced' ? 'Synced' : syncStatus === 'offline' ? 'Offline' : ''}>
-        </div>
+        <div class="header-spacer"></div>
+        ${(() => {
+          const age = lastSyncedAt ? Date.now() - lastSyncedAt : null;
+          // Freshness is invisible until it isn't: show the age whenever
+          // we're offline or the last successful sync is >5 min old.
+          const stale = syncStatus === 'offline' || (age != null && age > 5 * 60000);
+          const ageLabel = age != null ? formatAge(age) : 'never';
+          return html`
+            <div class="sync-wrap" title=${syncStatus === 'syncing' ? 'Syncing...'
+              : syncStatus === 'offline' ? `Offline — last synced ${ageLabel === 'now' ? 'just now' : ageLabel + ' ago'}`
+              : syncStatus === 'synced' ? 'Synced' : ''}>
+              ${stale && html`<span class="sync-age">${ageLabel}</span>`}
+              <div class="sync-indicator ${syncStatus}"></div>
+            </div>
+          `;
+        })()}
       </header>
       <main class="app-main">
         ${view}

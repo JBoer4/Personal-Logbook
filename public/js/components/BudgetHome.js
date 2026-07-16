@@ -2,8 +2,10 @@ import { useState, useEffect, useRef, useMemo } from 'preact/hooks';
 import { html } from 'htm/preact';
 import { db } from '../db.js';
 import { navigate } from '../router.js';
-import { syncAfterMutation } from '../sync.js';
-import { uuid, now, getWeekStart, getWeekDates, toDateStr, formatRange, dayName, hoursForDate, unionHoursForDate, computeHoursByCat, MS_PER_DAY } from '../utils.js';
+import { syncAfterMutation, useSyncRefresh } from '../sync.js';
+import { uuid, now, getWeekStart, getWeekDates, toDateStr, formatRange, formatShort, dayName, hoursForDate, unionHoursForDate, computeHoursByCat, buildCategoryTree, flattenCategoryTree, MS_PER_DAY } from '../utils.js';
+
+const DAY_NAMES_FULL = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
 export function BudgetHome({ budgetId }) {
   const [budget, setBudget] = useState(null);
@@ -12,6 +14,8 @@ export function BudgetHome({ budgetId }) {
   const [goalSnapshots, setGoalSnapshots] = useState([]); // silent per-week goal history
   const [allEventWeeks, setAllEventWeeks] = useState([]);
   const [weekOffset, setWeekOffset] = useState(0);
+  const [selectedDate, setSelectedDate] = useState(null);
+  const [daysWithHours, setDaysWithHours] = useState(() => new Set());
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -40,6 +44,19 @@ export function BudgetHome({ budgetId }) {
         toDateStr(getWeekStart(new Date(e.date + 'T00:00:00')))
       ))].sort().reverse();
       setAllEventWeeks(uniqueWeeks);
+
+      // Set of every date (across all history) that has any logged hours — powers the streak.
+      const candidateDates = new Set();
+      for (const e of allEvents) {
+        if (e.date) candidateDates.add(e.date);
+        if (e.startAt) candidateDates.add(toDateStr(new Date(e.startAt)));
+        if (e.endAt) candidateDates.add(toDateStr(new Date(e.endAt)));
+      }
+      const withHours = new Set();
+      for (const d of candidateDates) {
+        if (unionHoursForDate(allEvents, d) > 0) withHours.add(d);
+      }
+      setDaysWithHours(withHours);
 
       setEvents(allEvents.filter(e => {
         if (weekDateStrs.includes(e.date)) return true;
@@ -77,6 +94,7 @@ export function BudgetHome({ budgetId }) {
   }
 
   useEffect(() => { load(); }, [budgetId, weekOffset]);
+  useSyncRefresh(load);
 
   if (loading) return html`<div class="loading">Loading...</div>`;
 
@@ -118,34 +136,22 @@ export function BudgetHome({ budgetId }) {
     [categories]
   );
 
-  // Build hours by (categoryId, date) — no rollup, for timeline bar segments
-  const hoursByDayCat = useMemo(() => {
-    const result = {};
-    for (const event of events) {
-      const catIds = Array.isArray(event.categories) ? event.categories : [];
-      for (const dateStr of weekDateStrs) {
-        const h = hoursForDate(event, dateStr);
-        if (h > 0) {
-          for (const catId of catIds) {
-            const key = `${catId}|${dateStr}`;
-            result[key] = (result[key] || 0) + h;
-          }
-        }
-      }
-    }
-    return result;
-  }, [events, weekDateStrs]);
-
   // Weekly totals with parent rollup (for goal progress)
   const catTotals = useMemo(
     () => computeHoursByCat(events, weekDateStrs, categories),
     [events, weekDateStrs, categories]
   );
 
-  const { dayTotals, maxDay } = useMemo(() => {
-    const totals = weekDateStrs.map(dateStr => unionHoursForDate(events, dateStr));
-    return { dayTotals: totals, maxDay: Math.max(24, ...totals) };
-  }, [events, weekDateStrs]);
+  const dayTotals = useMemo(
+    () => weekDateStrs.map(dateStr => unionHoursForDate(events, dateStr)),
+    [events, weekDateStrs]
+  );
+
+  // Per-day category hours WITH parent rollup, one map per weekday (for the bycat bars).
+  const dayRollups = useMemo(
+    () => weekDateStrs.map(dateStr => computeHoursByCat(events, [dateStr], categories)),
+    [events, weekDateStrs, categories]
+  );
 
   // Clock-positioned events per day for the timeline strip
   const clockEventsByDay = useMemo(() => {
@@ -219,6 +225,63 @@ export function BudgetHome({ budgetId }) {
 
   const goalCats = categories.filter(c => c.minHours != null || c.maxHours != null);
 
+  // Selected day: user pick if it's in the visible week, else today (if visible), else week start.
+  const todayStr = toDateStr(new Date());
+  const defaultSel = weekDateStrs.includes(todayStr) ? todayStr : weekDateStrs[0];
+  const selDate = (selectedDate && weekDateStrs.includes(selectedDate)) ? selectedDate : defaultSel;
+  const selIndex = weekDateStrs.indexOf(selDate);
+  const selDateObj = weekDates[selIndex];
+  const selTotal = dayTotals[selIndex] || 0;
+
+  // Chips for the selected day — every category with hours (incl. rolled-up parents), tree order.
+  const selDayRollup = computeHoursByCat(events, [selDate], categories);
+  const treeOrder = flattenCategoryTree(buildCategoryTree(categories));
+  const selDayChips = treeOrder
+    .map(({ cat }) => ({ cat, hours: selDayRollup[cat.id] || 0 }))
+    .filter(x => x.hours > 0);
+
+  // Streak: consecutive days with any logged hours, anchored at today or (if today empty) yesterday.
+  const streak = (() => {
+    const cursor = new Date();
+    cursor.setHours(0, 0, 0, 0);
+    if (!daysWithHours.has(toDateStr(cursor))) {
+      cursor.setDate(cursor.getDate() - 1);
+      if (!daysWithHours.has(toDateStr(cursor))) return 0;
+    }
+    let count = 0;
+    while (daysWithHours.has(toDateStr(cursor))) {
+      count++;
+      cursor.setDate(cursor.getDate() - 1);
+    }
+    return count;
+  })();
+
+  // Goal helpers shared by the header pill and the bycat rows.
+  function goalInfo(cat) {
+    const actual = catTotals[cat.id] || 0;
+    const hasMin = cat.minHours != null;
+    const hasMax = cat.maxHours != null;
+    let onTrack;
+    if (hasMin && hasMax) onTrack = actual >= cat.minHours && actual <= cat.maxHours;
+    else if (hasMin) onTrack = actual >= cat.minHours;
+    else onTrack = actual <= cat.maxHours;
+    let goalText;
+    if (hasMin && hasMax) goalText = `${cat.minHours}–${cat.maxHours}h`;
+    else if (hasMin) goalText = `${cat.minHours}h+`;
+    else goalText = `${cat.maxHours}h`;
+    return { actual, onTrack, goalText };
+  }
+
+  const onTrackCount = goalCats.filter(cat => goalInfo(cat).onTrack).length;
+
+  // Bycat rows: goal categories, or (if none set) fall back to the busiest 4 categories.
+  const usingFallback = goalCats.length === 0;
+  const fallbackCats = [...categories]
+    .filter(c => (catTotals[c.id] || 0) > 0)
+    .sort((a, b) => (catTotals[b.id] || 0) - (catTotals[a.id] || 0))
+    .slice(0, 4);
+  const bycatRows = usingFallback ? fallbackCats : goalCats;
+
   return html`
     <div class="budget-home">
       <div class="budget-title-row">
@@ -249,127 +312,141 @@ export function BudgetHome({ budgetId }) {
         <button class="nav-arrow" onClick=${() => setWeekOffset(w => w + 1)}>›</button>
       </div>
 
-      <!-- Daily Timeline -->
-      <div class="timeline">
-        ${weekDates.map((date, i) => {
-          const dateStr = weekDateStrs[i];
-          return html`
-            <div class="timeline-col" key=${dateStr}
-              onClick=${() => navigate(`/budget/${budgetId}/log/${dateStr}`)}>
-              <div class="timeline-label">${dayName(date)}</div>
-              <div class="timeline-day">
-                <div class="tl-strip">
+      <!-- Weekly ribbon -->
+      <div class="ribbon">
+        <div class="ribbon-axis">
+          <span style=${{ top: '-3px' }}>12a</span>
+          <span style=${{ top: '40px' }}>6a</span>
+          <span style=${{ top: '83px' }}>12p</span>
+          <span style=${{ top: '126px' }}>6p</span>
+          <span style=${{ bottom: '-3px' }}>12a</span>
+        </div>
+        <div class="ribbon-cols">
+          ${weekDates.map((date, i) => {
+            const dateStr = weekDateStrs[i];
+            const isSel = dateStr === selDate;
+            return html`
+              <div class="ribbon-col" key=${dateStr} onClick=${() => setSelectedDate(dateStr)}>
+                <div class="ribbon-track${isSel ? ' sel' : ''}">
                   ${clockEventsByDay[dateStr].map(({ event, startMs, endMs, lane, split }) => {
                     const dayStart = new Date(dateStr + 'T00:00').getTime();
                     const topPct = (startMs - dayStart) / MS_PER_DAY * 100;
                     const heightPct = (endMs - startMs) / MS_PER_DAY * 100;
                     const catIds = Array.isArray(event.categories) ? event.categories : [];
                     const color = catIds.length > 0 ? (catById[catIds[0]]?.color || '#888') : '#888';
-                    return html`<div class="tl-event" key=${`${event.id}|${startMs}`} style=${{
-                      bottom: `${topPct}%`,
+                    return html`<div class="ribbon-block" key=${`${event.id}|${startMs}`} style=${{
+                      top: `${topPct}%`,
                       height: `${heightPct}%`,
-                      left: split && lane === 1 ? '50%' : '0',
-                      width: split ? '50%' : '100%',
+                      left: split && lane === 1 ? '50%' : '2px',
+                      right: split && lane === 0 ? '50%' : '2px',
                       background: color,
                     }}></div>`;
                   })}
                 </div>
-                <div class="tl-bar">
-                  ${categories.map(cat => {
-                    const h = hoursByDayCat[`${cat.id}|${dateStr}`] || 0;
-                    if (h === 0) return null;
-                    const pct = (h / maxDay) * 100;
-                    return html`<div class="timeline-segment" style=${{
-                      background: cat.color,
-                      height: `${pct}%`,
-                    }} title="${cat.name}: ${h.toFixed(1)}h"></div>`;
-                  })}
-                </div>
+                <span class="ribbon-day${isSel ? ' sel' : ''}">${dayName(date)[0]}</span>
+                <span class="ribbon-total">${dayTotals[i].toFixed(1)}</span>
               </div>
-              <div class="timeline-total">${dayTotals[i].toFixed(1)}</div>
-            </div>
-          `;
-        })}
+            `;
+          })}
+        </div>
       </div>
 
-      <!-- Goal Progress -->
-      <div class="budget-vs-actual">
-        <h3>Goal Progress</h3>
-
-        ${goalCats.length === 0 ? html`
-          <div class="empty-state" style=${{ fontSize: '0.85rem', padding: '12px 0 4px' }}>
-            No goals set — add a min or max to a category to track progress.
+      <!-- Selected day detail -->
+      <div class="day-detail">
+        <div class="day-detail-head">
+          <div class="day-detail-title">
+            <span class="day-detail-name">${DAY_NAMES_FULL[selDateObj.getDay()]}</span>
+            <span class="day-detail-date">${formatShort(selDateObj)}</span>
           </div>
-          ${copyableWeeks.length > 0 && html`
-            <div class="copy-from-wrap">
-              <button class="copy-from-btn" onClick=${() => setShowCopyPicker(v => !v)}>
-                Copy goals from a previous week ${showCopyPicker ? '▴' : '▾'}
-              </button>
-              ${showCopyPicker && html`
-                <div class="copy-picker">
-                  ${copyableWeeks.map(w => {
-                    const startD = new Date(w + 'T00:00:00');
-                    const endD = new Date(startD);
-                    endD.setDate(endD.getDate() + 6);
-                    return html`
-                      <button class="copy-picker-week" key=${w} onClick=${() => copyFromWeek(w)}>
-                        ${formatRange(startD, endD)}
-                      </button>
-                    `;
-                  })}
-                </div>
-              `}
-            </div>
-          `}
-        ` : goalCats.map(cat => {
-          const actual = catTotals[cat.id] || 0;
-          const hasMin = cat.minHours != null;
-          const hasMax = cat.maxHours != null;
-          const ref = hasMax ? cat.maxHours : cat.minHours;
-          const pct = ref > 0 ? Math.min((actual / ref) * 100, 150) : (actual > 0 ? 150 : 0);
-          const overMax = hasMax && actual > cat.maxHours;
+          <span class="day-detail-total">${selTotal.toFixed(1)}h</span>
+        </div>
+        ${selDayChips.length === 0 ? html`
+          <button class="day-empty-btn" onClick=${() => navigate(`/budget/${budgetId}/log/${selDate}`)}>
+            Nothing logged — block time on ${DAY_NAMES_FULL[selDateObj.getDay()]} →
+          </button>
+        ` : html`
+          <div class="day-chips">
+            ${selDayChips.map(({ cat, hours }) => html`
+              <span class="day-chip" key=${cat.id}>
+                <span class="day-chip-dot" style=${{ background: cat.color }}></span>
+                ${cat.name} <b>${hours.toFixed(1)}h</b>
+              </span>
+            `)}
+          </div>
+          <button class="day-open-btn" onClick=${() => navigate(`/budget/${budgetId}/log/${selDate}`)}>
+            Open day →
+          </button>
+        `}
+      </div>
 
-          let onTrack;
-          if (hasMin && hasMax) {
-            onTrack = actual >= cat.minHours && actual <= cat.maxHours;
-          } else if (hasMin) {
-            onTrack = actual >= cat.minHours;
+      <!-- By category -->
+      <div class="bycat">
+        <div class="bycat-head">
+          <div class="bycat-title">By category</div>
+          <div class="bycat-pills">
+            ${goalCats.length > 0 && html`<span class="pill-green">${onTrackCount}/${goalCats.length} on track</span>`}
+            ${streak >= 2 && html`<span class="pill-green">${streak}-day streak</span>`}
+          </div>
+        </div>
+        <div class="bycat-letters">
+          ${weekDates.map((date, i) => html`<span key=${i}>${dayName(date)[0]}</span>`)}
+        </div>
+        ${bycatRows.map(cat => {
+          const maxForCat = Math.max(0, ...dayRollups.map(r => r[cat.id] || 0));
+          let label, numColor;
+          if (usingFallback) {
+            label = `${(catTotals[cat.id] || 0).toFixed(1)}h`;
+            numColor = 'var(--text-dim)';
           } else {
-            onTrack = actual <= cat.maxHours;
+            const { actual, onTrack, goalText } = goalInfo(cat);
+            label = `${actual.toFixed(1)} / ${goalText}`;
+            numColor = onTrack ? 'var(--green)' : 'var(--amber-text)';
           }
-
-          let goalText;
-          if (hasMin && hasMax) {
-            goalText = `${cat.minHours}–${cat.maxHours}h`;
-          } else if (hasMin) {
-            goalText = `${cat.minHours}h+`;
-          } else {
-            goalText = `${cat.maxHours}h`;
-          }
-
           return html`
-            <div class="bva-row" key=${cat.id}>
-              <div class="bva-label">
-                <span class="bva-dot" style=${{ background: cat.color }}></span>
-                <span class="bva-name">${cat.name}</span>
+            <div class="bycat-row" key=${cat.id}>
+              <div class="bycat-row-head">
+                <span class="bycat-dot" style=${{ background: cat.color }}></span>
+                <span class="bycat-name">${cat.name}</span>
+                <span class="bycat-num" style=${{ color: numColor }}>${label}</span>
               </div>
-              <div class="bva-bar-wrap">
-                <div class="bva-bar" style=${{
-                  width: `${Math.min(pct, 100)}%`,
-                  background: cat.color,
-                }}></div>
-                ${overMax && html`<div class="bva-bar-over" style=${{
-                  width: `${pct - 100}%`,
-                  background: cat.color,
-                  opacity: 0.4,
-                }}></div>`}
-              </div>
-              <div class="bva-nums" style=${{ color: onTrack ? '#10b981' : 'var(--danger)' }}>
-                ${actual.toFixed(1)} / ${goalText}
+              <div class="bycat-bars">
+                ${weekDates.map((date, i) => {
+                  const v = dayRollups[i][cat.id] || 0;
+                  const pct = maxForCat > 0 ? (v / maxForCat) * 100 : 0;
+                  return html`<div class="bycat-barcell" key=${i}>
+                    <div class="bycat-bar" style=${{
+                      height: `${pct}%`,
+                      background: cat.color,
+                      opacity: i === selIndex ? 1 : 0.45,
+                    }}></div>
+                  </div>`;
+                })}
               </div>
             </div>
           `;
         })}
+
+        ${copyableWeeks.length > 0 && html`
+          <div class="copy-from-wrap">
+            <button class="copy-from-btn" onClick=${() => setShowCopyPicker(v => !v)}>
+              Copy goals from a previous week ${showCopyPicker ? '▴' : '▾'}
+            </button>
+            ${showCopyPicker && html`
+              <div class="copy-picker">
+                ${copyableWeeks.map(w => {
+                  const startD = new Date(w + 'T00:00:00');
+                  const endD = new Date(startD);
+                  endD.setDate(endD.getDate() + 6);
+                  return html`
+                    <button class="copy-picker-week" key=${w} onClick=${() => copyFromWeek(w)}>
+                      ${formatRange(startD, endD)}
+                    </button>
+                  `;
+                })}
+              </div>
+            `}
+          </div>
+        `}
       </div>
 
       <!-- Quick actions -->

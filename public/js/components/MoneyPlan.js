@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'preact/hooks';
 import { html } from 'htm/preact';
 import { db } from '../db.js';
-import { syncAfterMutation, debouncedSync } from '../sync.js';
+import { syncAfterMutation, debouncedSync, useSyncRefresh } from '../sync.js';
 import {
   uuid, now, getMonthLabel, monthStartOf, offsetMonthDate, formatCurrency,
   buildCategoryTree, flattenCategoryTree, isFund, computePlanned,
@@ -32,6 +32,7 @@ export function MoneyPlan({ budgetId }) {
   }
 
   useEffect(() => { setLoading(true); load(); }, [budgetId]);
+  useSyncRefresh(load);
   // Changing months resets transient UI state
   useEffect(() => { setBlankMode(false); setShowCopy(false); }, [monthOffset]);
 

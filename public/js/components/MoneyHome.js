@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'preact/hooks';
 import { html } from 'htm/preact';
 import { db } from '../db.js';
 import { navigate } from '../router.js';
-import { syncAfterMutation } from '../sync.js';
+import { syncAfterMutation, useSyncRefresh } from '../sync.js';
 import {
   uuid, now, today, getMonthDates, getMonthLabel, offsetMonthDate, formatCurrency,
   buildCategoryTree, flattenCategoryTree, rollUpToParents,
@@ -51,6 +51,7 @@ export function MoneyHome({ budgetId }) {
   }
 
   useEffect(() => { setLoading(true); load(); }, [budgetId, monthOffset]);
+  useSyncRefresh(load);
 
   async function renameBudget(newName) {
     if (!budget || !newName.trim()) return;
@@ -257,10 +258,12 @@ export function MoneyHome({ budgetId }) {
 
       ${!isEmpty && html`
         <div class="pipeline-strip">
-          ${transactions.length === 0 && html`
+          ${transactions.length === 0 ? html`
             <button class="pipeline-todo" onClick=${() => navigate('/budget/' + budgetId + '/import')}>
               No transactions — import
             </button>
+          ` : html`
+            <span class="pipeline-done">Imported ✓</span>
           `}
           ${hasPlan ? html`
             <button class="pipeline-done" onClick=${() => navigate('/budget/' + budgetId + '/plan')}>Plan ✓</button>
@@ -369,7 +372,7 @@ export function MoneyHome({ budgetId }) {
                   ${goal > 0 && html`
                     <div class="fund-goal">
                       <div class="fund-goal-bar-wrap">
-                        <div class="fund-goal-bar" style=${{ width: `${goalPct}%`, background: cat.color }}></div>
+                        <div class="fund-goal-bar" style=${{ width: `${goalPct}%`, background: 'var(--teal)' }}></div>
                       </div>
                       <span class="fund-goal-label">${formatCurrency(bal)} of ${formatCurrency(goal)}</span>
                     </div>

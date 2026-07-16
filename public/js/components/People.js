@@ -2,13 +2,40 @@ import { useState, useEffect, useRef } from 'preact/hooks';
 import { html } from 'htm/preact';
 import { db } from '../db.js';
 import { navigate } from '../router.js';
-import { syncAfterMutation } from '../sync.js';
-import { uuid, now, formatShort, parseTags, isNoteExpired, today } from '../utils.js';
+import { syncAfterMutation, useSyncRefresh } from '../sync.js';
+import {
+  uuid, now, parseTags, isNoteExpired, today, daysUntilReminder, MS_PER_DAY,
+} from '../utils.js';
+
+// Avatar palette for person initials — a tiny name-hash so each person gets a
+// stable color without storing one. Initials are always dark text (#0d0e12)
+// on these mid-bright swatches.
+const AVATAR_COLORS = ['#7f8dff', '#f0a742', '#43c59e', '#e5709b', '#5cc8de', '#9d8cff'];
+
+function avatarColor(name) {
+  let hash = 0;
+  for (let i = 0; i < (name || '').length; i++) {
+    hash = (hash * 31 + name.charCodeAt(i)) | 0;
+  }
+  return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
+}
+
+// Compact relative age for person rows ("5d" / "3w" / "2mo"). formatAge()
+// in utils.js only covers minutes/hours/days (for the sync indicator) — this
+// needs week/month buckets too, so it's a small local helper instead.
+function formatRelativeAge(elapsedMs) {
+  const days = Math.floor(elapsedMs / MS_PER_DAY);
+  if (days < 1) return 'today';
+  if (days < 7) return `${days}d`;
+  if (days < 31) return `${Math.floor(days / 7)}w`;
+  return `${Math.floor(days / 30)}mo`;
+}
 
 export function People({ budgetId }) {
   const [list, setList] = useState(null); // the people-list budget record
   const [people, setPeople] = useState([]);
   const [noteInfo, setNoteInfo] = useState({}); // personId -> {count, lastNoteAt, lastNoteText}
+  const [reminders, setReminders] = useState([]); // due-soon {note, person, days}, sorted
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState('');
   const [chip, setChip] = useState(null); // null | {person} | {isNew: true, name}
@@ -25,6 +52,7 @@ export function People({ budgetId }) {
     ]);
     const ppl = allPeople.filter(p => p.budgetId === budgetId);
     const ids = new Set(ppl.map(p => p.id));
+    const personById = Object.fromEntries(ppl.map(p => [p.id, p]));
     const todayStr = today();
     const info = {};
     for (const n of notes) {
@@ -37,13 +65,25 @@ export function People({ budgetId }) {
       }
       info[n.personId] = cur;
     }
+
+    // Reminder notes due within the next week, for people in this list
+    const due = [];
+    for (const n of notes) {
+      if (!n.remindOn || !ids.has(n.personId)) continue;
+      const days = daysUntilReminder(n.remindOn, n.repeatYearly);
+      if (days >= 0 && days <= 7) due.push({ note: n, person: personById[n.personId], days });
+    }
+    due.sort((a, b) => a.days - b.days);
+
     setList(budget || null);
     setPeople(ppl);
     setNoteInfo(info);
+    setReminders(due);
     setLoading(false);
   }
 
   useEffect(() => { setLoading(true); load(); }, [budgetId]);
+  useSyncRefresh(load);
 
   async function renameList(newName) {
     setEditingTitle(false);
@@ -169,8 +209,37 @@ export function People({ budgetId }) {
         </div>
       `}
 
+      ${reminders.length > 0 && html`
+        <div class="reminder-list">
+          ${reminders.map(({ note, person, days }) => html`
+            <button class="reminder-banner" key=${note.id}
+              onClick=${() => navigate(`/budget/${budgetId}/person/${person.id}`)}>
+              <span class="reminder-dot ${note.repeatYearly ? 'birthday' : ''}"></span>
+              <span class="reminder-text"><strong>${person.name}</strong> · ${note.text}</span>
+              <span class="reminder-when">${days === 0 ? 'today' : days === 1 ? 'tomorrow' : `in ${days} days`}</span>
+            </button>
+          `)}
+        </div>
+      `}
+
+      ${allTags.length > 0 && html`
+        <div class="tag-filter-row">
+          ${allTags.map(t => html`
+            <button class="tag-filter-chip ${activeTag?.toLowerCase() === t.toLowerCase() ? 'active' : ''}" key=${t}
+              onClick=${() => setActiveTag(activeTag?.toLowerCase() === t.toLowerCase() ? null : t)}>
+              ${t}
+            </button>
+          `)}
+        </div>
+      `}
+
       <div class="people-quickadd">
         <div class="qa-input-wrap">
+          ${!chip && html`
+            <span class="qa-plus-icon">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+            </span>
+          `}
           ${chip && html`
             <span class="qa-chip">
               ${chip.isNew ? chip.name : chip.person.name}
@@ -179,7 +248,7 @@ export function People({ budgetId }) {
           `}
           <input class="qa-input" type="text" ref=${inputRef}
             value=${query}
-            placeholder=${chip ? `Note about ${chip.isNew ? chip.name : chip.person.name}…` : 'Who did you talk to?'}
+            placeholder=${chip ? `Note about ${chip.isNew ? chip.name : chip.person.name}…` : 'Add someone…'}
             autocomplete="off"
             autocapitalize=${chip ? 'sentences' : 'words'}
             enterkeyhint=${chip ? 'send' : 'go'}
@@ -206,17 +275,6 @@ export function People({ budgetId }) {
         `}
       </div>
 
-      ${allTags.length > 0 && html`
-        <div class="tag-filter-row">
-          ${allTags.map(t => html`
-            <button class="tag-filter-chip ${activeTag?.toLowerCase() === t.toLowerCase() ? 'active' : ''}" key=${t}
-              onClick=${() => setActiveTag(activeTag?.toLowerCase() === t.toLowerCase() ? null : t)}>
-              ${t}
-            </button>
-          `)}
-        </div>
-      `}
-
       ${people.length === 0 ? html`
         <div class="empty-state">No people yet — type a name above to jot your first note.</div>
       ` : sorted.length === 0 ? html`
@@ -226,16 +284,18 @@ export function People({ budgetId }) {
           ${sorted.map(p => {
             const info = noteInfo[p.id];
             const tags = parseTags(p.tag);
+            const initial = (p.name || '?').trim().charAt(0).toUpperCase() || '?';
             return html`
               <button class="person-row" key=${p.id} onClick=${() => navigate(`/budget/${budgetId}/person/${p.id}`)}>
-                <div class="person-row-main">
-                  <span class="person-row-name">${p.name}</span>
-                  ${tags.map(t => html`<span class="person-row-tag" key=${t}>${t}</span>`)}
-                  <span class="person-row-meta">
-                    ${info ? `${formatShort(info.lastNoteAt)} · ${info.count}` : ''}
-                  </span>
+                <div class="person-row-avatar" style=${{ background: avatarColor(p.name) }}>${initial}</div>
+                <div class="person-row-body">
+                  <div class="person-row-main">
+                    <span class="person-row-name">${p.name}</span>
+                    ${tags.map(t => html`<span class="person-row-tag" key=${t}>${t}</span>`)}
+                  </div>
+                  ${info?.lastNoteText && html`<div class="person-row-snippet">${info.lastNoteText}</div>`}
                 </div>
-                ${info?.lastNoteText && html`<div class="person-row-snippet">${info.lastNoteText}</div>`}
+                <span class="person-row-age">${info ? formatRelativeAge(Date.now() - info.lastNoteAt) : ''}</span>
               </button>
             `;
           })}

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'preact/hooks';
 import { html } from 'htm/preact';
 import { db } from '../db.js';
-import { syncAfterMutation, debouncedSync } from '../sync.js';
+import { syncAfterMutation, debouncedSync, useSyncRefresh } from '../sync.js';
 import { uuid, now, buildCategoryTree, flattenCategoryTree, getDescendantIds } from '../utils.js';
 
 const PALETTE = ['#6366f1', '#f59e0b', '#10b981', '#ec4899', '#8b5cf6', '#06b6d4', '#f97316', '#84cc16', '#e11d48', '#64748b'];
@@ -17,6 +17,7 @@ export function Categories({ budgetId }) {
   }
 
   useEffect(() => { load(); }, [budgetId]);
+  useSyncRefresh(load);
 
   async function updateCat(id, field, value) {
     const cat = categories.find(c => c.id === id);

@@ -162,6 +162,21 @@ db.exec(`
 
   CREATE INDEX IF NOT EXISTS idx_money_plans_budget ON money_plans(budgetId);
 
+  CREATE TABLE IF NOT EXISTS day_notes (
+    id TEXT PRIMARY KEY,
+    budgetId TEXT NOT NULL,
+    date TEXT NOT NULL,
+    at TEXT,
+    text TEXT NOT NULL,
+    deleted INTEGER NOT NULL DEFAULT 0,
+    createdAt INTEGER NOT NULL,
+    updatedAt INTEGER NOT NULL,
+    FOREIGN KEY (budgetId) REFERENCES budgets(id) ON DELETE CASCADE
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_day_notes_budget ON day_notes(budgetId);
+  CREATE INDEX IF NOT EXISTS idx_day_notes_date ON day_notes(date);
+
   CREATE TABLE IF NOT EXISTS money_rules (
     id TEXT PRIMARY KEY,
     budgetId TEXT NOT NULL,
@@ -303,6 +318,7 @@ const PEOPLE_COLS = ['id', 'budgetId', 'name', 'tag', 'deleted', 'createdAt', 'u
 const PERSON_NOTE_COLS = ['id', 'personId', 'text', 'pinned', 'expiresAt', 'remindOn', 'repeatYearly', 'deleted', 'createdAt', 'updatedAt'];
 const MONEY_PLAN_COLS = ['id', 'budgetId', 'categoryId', 'monthStart', 'minAmount', 'maxAmount', 'contribution', 'deleted', 'createdAt', 'updatedAt'];
 const MONEY_RULE_COLS = ['id', 'budgetId', 'match', 'categoryId', 'markTransfer', 'deleted', 'createdAt', 'updatedAt'];
+const DAY_NOTE_COLS = ['id', 'budgetId', 'date', 'at', 'text', 'deleted', 'createdAt', 'updatedAt'];
 
 // --- OFX Import ---
 
@@ -371,7 +387,7 @@ app.post('/api/budgets/:id/transactions/batch', (req, res) => {
 // This is how deletions propagate to other devices.
 
 app.post('/api/sync', (req, res) => {
-  const { lastSyncAt = 0, budgets: cBudgets = [], categories: cCategories = [], entries: cEntries = [], events: cEvents = [], periodOverrides: cOverrides = [], transactions: cTransactions = [], people: cPeople = [], personNotes: cPersonNotes = [], moneyPlans: cMoneyPlans = [], moneyRules: cMoneyRules = [] } = req.body;
+  const { lastSyncAt = 0, budgets: cBudgets = [], categories: cCategories = [], entries: cEntries = [], events: cEvents = [], periodOverrides: cOverrides = [], transactions: cTransactions = [], people: cPeople = [], personNotes: cPersonNotes = [], moneyPlans: cMoneyPlans = [], moneyRules: cMoneyRules = [], dayNotes: cDayNotes = [] } = req.body;
   const now = Date.now();
 
   const syncTransaction = db.transaction(() => {
@@ -387,6 +403,7 @@ app.post('/api/sync', (req, res) => {
     for (const r of cPersonNotes) upsertRow('person_notes', { pinned: 0, expiresAt: null, remindOn: null, repeatYearly: 0, deleted: 0, ...r }, PERSON_NOTE_COLS);
     for (const r of cMoneyPlans) upsertRow('money_plans', { minAmount: null, maxAmount: null, contribution: null, deleted: 0, ...r }, MONEY_PLAN_COLS);
     for (const r of cMoneyRules) upsertRow('money_rules', { categoryId: null, markTransfer: 0, deleted: 0, ...r }, MONEY_RULE_COLS);
+    for (const r of cDayNotes) upsertRow('day_notes', { at: null, deleted: 0, ...r }, DAY_NOTE_COLS);
 
     // Return ALL server records changed since lastSyncAt (including deleted)
     const sBudgets = db.prepare('SELECT * FROM budgets WHERE updatedAt > ?').all(lastSyncAt);
@@ -399,8 +416,9 @@ app.post('/api/sync', (req, res) => {
     const sPersonNotes = db.prepare('SELECT * FROM person_notes WHERE updatedAt > ?').all(lastSyncAt);
     const sMoneyPlans = db.prepare('SELECT * FROM money_plans WHERE updatedAt > ?').all(lastSyncAt);
     const sMoneyRules = db.prepare('SELECT * FROM money_rules WHERE updatedAt > ?').all(lastSyncAt);
+    const sDayNotes = db.prepare('SELECT * FROM day_notes WHERE updatedAt > ?').all(lastSyncAt);
 
-    return { budgets: sBudgets, categories: sCategories, entries: sEntries, events: sEvents, periodOverrides: sOverrides, transactions: sTransactions, people: sPeople, personNotes: sPersonNotes, moneyPlans: sMoneyPlans, moneyRules: sMoneyRules, syncedAt: now };
+    return { budgets: sBudgets, categories: sCategories, entries: sEntries, events: sEvents, periodOverrides: sOverrides, transactions: sTransactions, people: sPeople, personNotes: sPersonNotes, moneyPlans: sMoneyPlans, moneyRules: sMoneyRules, dayNotes: sDayNotes, syncedAt: now };
   });
 
   res.json(syncTransaction());

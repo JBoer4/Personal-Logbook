@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'preact/hooks';
 import { html } from 'htm/preact';
 import { db } from '../db.js';
+import { useSyncRefresh } from '../sync.js';
 import { navigate } from '../router.js';
 import { getWeekStart, getWeekDates, toDateStr, formatRange, hoursForDate, computeHoursByCat, buildCategoryTree, flattenCategoryTree } from '../utils.js';
 
@@ -19,6 +20,7 @@ export function History({ budgetId }) {
   }
 
   useEffect(() => { load(); }, [budgetId]);
+  useSyncRefresh(load);
 
   if (loading) return html`<div class="loading">Loading...</div>`;
 
@@ -47,6 +49,7 @@ export function History({ budgetId }) {
           const hoursByCat = computeHoursByCat(events, weekDates, categories);
           const weekTotal = events.reduce(
             (s, e) => s + weekDates.reduce((ds, d) => ds + hoursForDate(e, d), 0), 0);
+          const maxHours = Math.max(...flatCats.map(({ cat }) => hoursByCat[cat.id] || 0), 1);
 
           return html`
             <button class="history-week" key=${weekStart}
@@ -60,6 +63,9 @@ export function History({ budgetId }) {
                     <div class="history-cat-row" key=${cat.id}>
                       <span class="history-dot" style=${{ background: cat.color }}></span>
                       <span class="history-cat-name">${cat.name}</span>
+                      <div class="history-bar-wrap">
+                        <div class="history-bar" style=${{ width: `${(actual / maxHours) * 100}%`, background: cat.color }}></div>
+                      </div>
                       <span class="history-cat-hours">${actual.toFixed(1)}h</span>
                     </div>
                   `;

@@ -2,8 +2,8 @@
 // Uses soft deletes (deleted flag) so deletions propagate via sync.
 
 const DB_NAME = 'budget-app';
-const DB_VERSION = 6;
-const STORES = ['budgets', 'categories', 'entries', 'periodOverrides', 'transactions', 'events', 'people', 'personNotes', 'moneyPlans', 'moneyRules', 'meta'];
+const DB_VERSION = 7;
+const STORES = ['budgets', 'categories', 'entries', 'periodOverrides', 'transactions', 'events', 'people', 'personNotes', 'moneyPlans', 'moneyRules', 'dayNotes', 'meta'];
 
 let dbInstance = null;
 
@@ -39,6 +39,10 @@ function openDB() {
           if (name === 'personNotes') store.createIndex('personId', 'personId');
           if (name === 'moneyPlans') store.createIndex('budgetId', 'budgetId');
           if (name === 'moneyRules') store.createIndex('budgetId', 'budgetId');
+          if (name === 'dayNotes') {
+            store.createIndex('budgetId', 'budgetId');
+            store.createIndex('date', 'date');
+          }
         }
       }
     };
@@ -99,9 +103,14 @@ async function put(storeName, record) {
   return promisify(store.put({ ...record, _dirty: 1 }));
 }
 
+// Returns true when the write actually changed the stored record, so sync
+// can tell whether a pull brought anything this device hadn't seen.
+// updatedAt is the LWW clock — same updatedAt means same content.
 async function putClean(storeName, record) {
   const store = await tx(storeName, 'readwrite');
-  return promisify(store.put({ ...record, _dirty: 0 }));
+  const existing = await promisify(store.get(record.id));
+  await promisify(store.put({ ...record, _dirty: 0 }));
+  return !existing || existing.updatedAt !== record.updatedAt;
 }
 
 // Soft delete: mark as deleted + dirty, with new updatedAt
@@ -203,6 +212,12 @@ export const db = {
   putMoneyRuleClean: (record) => putClean('moneyRules', record),
   deleteMoneyRule: (id, ts) => softDelete('moneyRules', id, ts),
 
+  // Day Notes (free-text entries in the daily log feed)
+  getDayNotes: (budgetId) => getAllByIndex('dayNotes', 'budgetId', budgetId),
+  putDayNote: (record) => put('dayNotes', record),
+  putDayNoteClean: (record) => putClean('dayNotes', record),
+  deleteDayNote: (id, ts) => softDelete('dayNotes', id, ts),
+
   // Meta
   getMeta,
   setMeta,
@@ -218,5 +233,6 @@ export const db = {
   getDirtyPersonNotes: () => getDirty('personNotes'),
   getDirtyMoneyPlans: () => getDirty('moneyPlans'),
   getDirtyMoneyRules: () => getDirty('moneyRules'),
+  getDirtyDayNotes: () => getDirty('dayNotes'),
   cleanRecord,
 };
