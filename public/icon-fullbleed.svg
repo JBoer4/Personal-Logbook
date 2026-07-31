@@ -1,6 +1,9 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
-  <defs><linearGradient id="bg-5a" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1a1c24"></stop><stop offset="1" stop-color="#0e1015"></stop></linearGradient></defs>
-  <rect width="100" height="100" rx="24" fill="url(#bg-5a)"></rect>
+  <!-- Derived from icon.svg: identical artwork, square (non-rounded) background.
+       Source for apple-touch-icon.png — iOS applies its own squircle mask and
+       renders transparent corners as black, so it needs a full-bleed square. -->
+  <defs><linearGradient id="bg-fb" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1a1c24"></stop><stop offset="1" stop-color="#0e1015"></stop></linearGradient></defs>
+  <rect width="100" height="100" fill="url(#bg-fb)"></rect>
   <path d="M20,30 L48,22 L48,78 L20,70 Z" fill="#30343f" stroke="#444956" stroke-width="1.5"></path>
   <rect x="26" y="40" width="16" height="3" rx="1.5" fill="#565b6a"></rect>
   <rect x="26" y="48" width="12" height="3" rx="1.5" fill="#565b6a"></rect>

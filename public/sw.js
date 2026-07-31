@@ -1,10 +1,15 @@
-const CACHE_NAME = 'budget-app-v17';
+const CACHE_NAME = 'budget-app-v21';
 const ASSETS = [
   '/',
   '/index.html',
   '/style.css',
   '/manifest.json',
   '/icon.svg',
+  '/icon-192.png',
+  '/icon-512.png',
+  '/icon-maskable-512.png',
+  '/apple-touch-icon.png',
+  '/favicon-32.png',
   '/fonts/hanken-grotesk-latin.woff2',
   '/fonts/hanken-grotesk-latin-ext.woff2',
   '/fonts/schibsted-grotesk-latin.woff2',
