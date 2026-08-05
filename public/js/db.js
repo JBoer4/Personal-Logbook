@@ -3,7 +3,7 @@
 
 const DB_NAME = 'budget-app';
 const DB_VERSION = 7;
-const STORES = ['budgets', 'categories', 'entries', 'periodOverrides', 'transactions', 'events', 'people', 'personNotes', 'moneyPlans', 'moneyRules', 'dayNotes', 'meta'];
+const STORES = ['budgets', 'categories', 'periodOverrides', 'transactions', 'events', 'people', 'personNotes', 'moneyPlans', 'moneyRules', 'dayNotes', 'meta'];
 
 let dbInstance = null;
 
@@ -21,11 +21,6 @@ function openDB() {
         if (!db.objectStoreNames.contains(name)) {
           const store = db.createObjectStore(name, { keyPath: name === 'meta' ? 'key' : 'id' });
           if (name === 'categories') store.createIndex('budgetId', 'budgetId');
-          if (name === 'entries') {
-            store.createIndex('budgetId', 'budgetId');
-            store.createIndex('date', 'date');
-            store.createIndex('categoryId', 'categoryId');
-          }
           if (name === 'periodOverrides') store.createIndex('budgetId', 'budgetId');
           if (name === 'transactions') {
             store.createIndex('budgetId', 'budgetId');
@@ -163,11 +158,6 @@ export const db = {
   putCategoryClean: (record) => putClean('categories', record),
   deleteCategory: (id, ts) => softDelete('categories', id, ts),
 
-  // Entries (legacy model — kept so old data still syncs)
-  getEntries: (budgetId) => getAllByIndex('entries', 'budgetId', budgetId),
-  putEntryClean: (record) => putClean('entries', record),
-  deleteEntry: (id, ts) => softDelete('entries', id, ts),
-
   // Period Overrides
   getOverrides: (budgetId) => getAllByIndex('periodOverrides', 'budgetId', budgetId),
   putOverride: (record) => put('periodOverrides', record),
@@ -225,7 +215,6 @@ export const db = {
   // Dirty
   getDirtyBudgets: () => getDirty('budgets'),
   getDirtyCategories: () => getDirty('categories'),
-  getDirtyEntries: () => getDirty('entries'),
   getDirtyOverrides: () => getDirty('periodOverrides'),
   getDirtyTransactions: () => getDirty('transactions'),
   getDirtyEvents: () => getDirty('events'),

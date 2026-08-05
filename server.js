@@ -46,22 +46,6 @@ db.exec(`
     FOREIGN KEY (budgetId) REFERENCES budgets(id) ON DELETE CASCADE
   );
 
-  CREATE TABLE IF NOT EXISTS entries (
-    id TEXT PRIMARY KEY,
-    budgetId TEXT NOT NULL,
-    categoryId TEXT NOT NULL,
-    date TEXT NOT NULL,
-    hours REAL NOT NULL DEFAULT 0,
-    startTime TEXT,
-    endTime TEXT,
-    note TEXT,
-    deleted INTEGER NOT NULL DEFAULT 0,
-    createdAt INTEGER NOT NULL,
-    updatedAt INTEGER NOT NULL,
-    FOREIGN KEY (budgetId) REFERENCES budgets(id) ON DELETE CASCADE,
-    FOREIGN KEY (categoryId) REFERENCES categories(id) ON DELETE CASCADE
-  );
-
   CREATE TABLE IF NOT EXISTS period_overrides (
     id TEXT PRIMARY KEY,
     budgetId TEXT NOT NULL,
@@ -76,9 +60,6 @@ db.exec(`
   );
 
   CREATE INDEX IF NOT EXISTS idx_categories_budget ON categories(budgetId);
-  CREATE INDEX IF NOT EXISTS idx_entries_budget ON entries(budgetId);
-  CREATE INDEX IF NOT EXISTS idx_entries_date ON entries(date);
-  CREATE INDEX IF NOT EXISTS idx_entries_category ON entries(categoryId);
   CREATE INDEX IF NOT EXISTS idx_period_overrides_budget ON period_overrides(budgetId);
 
   CREATE TABLE IF NOT EXISTS transactions (
@@ -201,7 +182,7 @@ function addColumnIfMissing(table, column, ddl) {
   return true;
 }
 
-for (const table of ['budgets', 'categories', 'entries', 'period_overrides']) {
+for (const table of ['budgets', 'categories', 'period_overrides']) {
   addColumnIfMissing(table, 'deleted', 'INTEGER NOT NULL DEFAULT 0');
 }
 addColumnIfMissing('categories', 'parentId', 'TEXT');
@@ -215,64 +196,13 @@ addColumnIfMissing('person_notes', 'expiresAt', 'TEXT');
 addColumnIfMissing('person_notes', 'remindOn', 'TEXT');
 addColumnIfMissing('person_notes', 'repeatYearly', 'INTEGER NOT NULL DEFAULT 0');
 
-// Migrate: targetAmount replaces targetHours for money budgets
-if (addColumnIfMissing('categories', 'targetAmount', 'REAL')) {
-  db.exec(`UPDATE categories SET targetAmount = targetHours
-    WHERE budgetId IN (SELECT id FROM budgets WHERE type = 'money')`);
-}
-
-// Money redesign columns
+addColumnIfMissing('categories', 'targetAmount', 'REAL');
 addColumnIfMissing('categories', 'goalBalance', 'REAL');
 addColumnIfMissing('categories', 'location', 'TEXT');
 addColumnIfMissing('transactions', 'account', 'TEXT');
 addColumnIfMissing('transactions', 'ruleId', 'TEXT');
-
-// Migrate: money-budget categories gain a nature (flow/fund) derived from rollover,
-// and the current month's plan is seeded from each category's targetAmount.
-if (addColumnIfMissing('categories', 'nature', 'TEXT')) {
-  const ts = Date.now();
-  const moneyBudgetIds = db.prepare("SELECT id FROM budgets WHERE type = 'money'").all().map(b => b.id);
-  if (moneyBudgetIds.length > 0) {
-    const inClause = moneyBudgetIds.map(() => '?').join(', ');
-    // (a) rollover categories become funds (earmarked); the rest are flow.
-    db.prepare(`UPDATE categories SET nature = 'fund', location = 'earmarked', updatedAt = ?
-      WHERE rollover = 1 AND budgetId IN (${inClause})`).run(ts, ...moneyBudgetIds);
-    db.prepare(`UPDATE categories SET nature = 'flow', updatedAt = ?
-      WHERE (rollover = 0 OR rollover IS NULL) AND budgetId IN (${inClause})`).run(ts, ...moneyBudgetIds);
-
-    // (b) Seed current month's plan from targetAmount (as maxAmount).
-    const monthStart = (() => {
-      const d = new Date();
-      const m = String(d.getMonth() + 1).padStart(2, '0');
-      return `${d.getFullYear()}-${m}-01`;
-    })();
-    const seedCats = db.prepare(`SELECT id, budgetId, targetAmount FROM categories
-      WHERE deleted = 0 AND targetAmount > 0 AND budgetId IN (${inClause})`).all(...moneyBudgetIds);
-    const insertPlan = db.prepare(`INSERT INTO money_plans
-      (id, budgetId, categoryId, monthStart, minAmount, maxAmount, contribution, deleted, createdAt, updatedAt)
-      VALUES (?, ?, ?, ?, NULL, ?, NULL, 0, ?, ?)`);
-    for (const c of seedCats) {
-      insertPlan.run(require('crypto').randomUUID(), c.budgetId, c.id, monthStart, c.targetAmount, ts, ts);
-    }
-  }
-}
-
-// Migrate: people belong to a people-list (budgets row with type 'people').
-// Adds the column and adopts any orphan people into a default list.
-{
-  addColumnIfMissing('people', 'budgetId', 'TEXT');
-  const orphans = db.prepare('SELECT COUNT(*) c FROM people WHERE budgetId IS NULL AND deleted = 0').get().c;
-  if (orphans > 0) {
-    const ts = Date.now();
-    let list = db.prepare("SELECT id FROM budgets WHERE type = 'people' AND deleted = 0 ORDER BY createdAt LIMIT 1").get();
-    if (!list) {
-      list = { id: require('crypto').randomUUID() };
-      db.prepare('INSERT INTO budgets (id, name, type, periodType, periodStartDay, deleted, createdAt, updatedAt) VALUES (?, ?, ?, ?, 0, 0, ?, ?)')
-        .run(list.id, 'People', 'people', 'none', ts, ts);
-    }
-    db.prepare('UPDATE people SET budgetId = ?, updatedAt = ? WHERE budgetId IS NULL AND deleted = 0').run(list.id, ts);
-  }
-}
+addColumnIfMissing('categories', 'nature', 'TEXT');
+addColumnIfMissing('people', 'budgetId', 'TEXT');
 
 // --- Event category serialization ---
 // categories is stored as JSON string in SQLite, but sent/received as an array over HTTP
@@ -304,13 +234,12 @@ function upsertRow(table, row, columns) {
   stmt.run(...columns.map(c => row[c] ?? null));
 }
 
-// --- Table column lists (used by the sync endpoint and OFX batch import) ---
+// --- Table column lists (used by the sync endpoint) ---
 // All client/server data flow goes through /api/sync; there are no per-record
 // REST endpoints. Mutations happen in IndexedDB on the client and sync over.
 
 const BUDGET_COLS = ['id', 'name', 'type', 'periodType', 'periodStartDay', 'deleted', 'createdAt', 'updatedAt'];
 const CATEGORY_COLS = ['id', 'budgetId', 'parentId', 'name', 'color', 'targetHours', 'targetAmount', 'minHours', 'maxHours', 'sortOrder', 'rollover', 'nature', 'goalBalance', 'location', 'deleted', 'createdAt', 'updatedAt'];
-const ENTRY_COLS = ['id', 'budgetId', 'categoryId', 'date', 'hours', 'startTime', 'endTime', 'note', 'deleted', 'createdAt', 'updatedAt'];
 const EVENT_COLS = ['id', 'budgetId', 'date', 'startAt', 'endAt', 'hours', 'description', 'categories', 'deleted', 'createdAt', 'updatedAt'];
 const TRANSACTION_COLS = ['id', 'budgetId', 'categoryId', 'date', 'amount', 'payee', 'memo', 'fitid', 'trntype', 'transferId', 'account', 'ruleId', 'deleted', 'createdAt', 'updatedAt'];
 const OVERRIDE_COLS = ['id', 'budgetId', 'categoryId', 'periodStart', 'targetHours', 'minHours', 'maxHours', 'deleted', 'createdAt', 'updatedAt'];
@@ -367,34 +296,18 @@ app.post('/api/budgets/:id/import-ofx', (req, res) => {
   }
 });
 
-// --- Batch Import ---
-
-app.post('/api/budgets/:id/transactions/batch', (req, res) => {
-  const items = req.body;
-  if (!Array.isArray(items)) return res.status(400).json({ error: 'Expected array' });
-  const batchInsert = db.transaction(() => {
-    for (const item of items) {
-      const row = { deleted: 0, ...item, budgetId: req.params.id };
-      upsertRow('transactions', row, TRANSACTION_COLS);
-    }
-  });
-  batchInsert();
-  res.json({ imported: items.length });
-});
-
 // --- Sync endpoint ---
 // Returns ALL records changed since lastSyncAt, including soft-deleted ones.
 // This is how deletions propagate to other devices.
 
 app.post('/api/sync', (req, res) => {
-  const { lastSyncAt = 0, budgets: cBudgets = [], categories: cCategories = [], entries: cEntries = [], events: cEvents = [], periodOverrides: cOverrides = [], transactions: cTransactions = [], people: cPeople = [], personNotes: cPersonNotes = [], moneyPlans: cMoneyPlans = [], moneyRules: cMoneyRules = [], dayNotes: cDayNotes = [] } = req.body;
+  const { lastSyncAt = 0, budgets: cBudgets = [], categories: cCategories = [], events: cEvents = [], periodOverrides: cOverrides = [], transactions: cTransactions = [], people: cPeople = [], personNotes: cPersonNotes = [], moneyPlans: cMoneyPlans = [], moneyRules: cMoneyRules = [], dayNotes: cDayNotes = [] } = req.body;
   const now = Date.now();
 
   const syncTransaction = db.transaction(() => {
     // Upsert client records (including soft-deleted ones)
     for (const r of cBudgets) upsertRow('budgets', { deleted: 0, ...r }, BUDGET_COLS);
     for (const r of cCategories) upsertRow('categories', { targetHours: 0, deleted: 0, rollover: 0, ...r }, CATEGORY_COLS);
-    for (const r of cEntries) upsertRow('entries', { deleted: 0, ...r }, ENTRY_COLS);
     for (const r of cEvents) upsertRow('events', serializeEvent({ deleted: 0, ...r }), EVENT_COLS);
     for (const r of cOverrides) upsertRow('period_overrides', { targetHours: 0, deleted: 0, ...r }, OVERRIDE_COLS);
     for (const r of cTransactions) upsertRow('transactions', { deleted: 0, ...r }, TRANSACTION_COLS);
@@ -408,7 +321,6 @@ app.post('/api/sync', (req, res) => {
     // Return ALL server records changed since lastSyncAt (including deleted)
     const sBudgets = db.prepare('SELECT * FROM budgets WHERE updatedAt > ?').all(lastSyncAt);
     const sCategories = db.prepare('SELECT * FROM categories WHERE updatedAt > ?').all(lastSyncAt);
-    const sEntries = db.prepare('SELECT * FROM entries WHERE updatedAt > ?').all(lastSyncAt);
     const sEvents = db.prepare('SELECT * FROM events WHERE updatedAt > ?').all(lastSyncAt).map(deserializeEvent);
     const sOverrides = db.prepare('SELECT * FROM period_overrides WHERE updatedAt > ?').all(lastSyncAt);
     const sTransactions = db.prepare('SELECT * FROM transactions WHERE updatedAt > ?').all(lastSyncAt);
@@ -418,7 +330,7 @@ app.post('/api/sync', (req, res) => {
     const sMoneyRules = db.prepare('SELECT * FROM money_rules WHERE updatedAt > ?').all(lastSyncAt);
     const sDayNotes = db.prepare('SELECT * FROM day_notes WHERE updatedAt > ?').all(lastSyncAt);
 
-    return { budgets: sBudgets, categories: sCategories, entries: sEntries, events: sEvents, periodOverrides: sOverrides, transactions: sTransactions, people: sPeople, personNotes: sPersonNotes, moneyPlans: sMoneyPlans, moneyRules: sMoneyRules, dayNotes: sDayNotes, syncedAt: now };
+    return { budgets: sBudgets, categories: sCategories, events: sEvents, periodOverrides: sOverrides, transactions: sTransactions, people: sPeople, personNotes: sPersonNotes, moneyPlans: sMoneyPlans, moneyRules: sMoneyRules, dayNotes: sDayNotes, syncedAt: now };
   });
 
   res.json(syncTransaction());

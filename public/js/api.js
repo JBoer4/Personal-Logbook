@@ -30,6 +30,5 @@ export const api = {
       body: ofxText,
     }).then(r => { if (!r.ok) throw new Error(`API ${r.status}`); return r.json(); });
   },
-  batchCreateTransactions: (budgetId, transactions) => request(`/budgets/${budgetId}/transactions/batch`, { method: 'POST', body: transactions }),
   sync: (payload) => request('/sync', { method: 'POST', body: payload }),
 };

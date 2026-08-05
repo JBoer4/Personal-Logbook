@@ -40,11 +40,11 @@ export async function sync() {
 
     // Gather dirty records
     const [
-      dirtyBudgets, dirtyCategories, dirtyEntries, dirtyEvents,
+      dirtyBudgets, dirtyCategories, dirtyEvents,
       dirtyOverrides, dirtyTransactions, dirtyPeople, dirtyPersonNotes,
       dirtyMoneyPlans, dirtyMoneyRules, dirtyDayNotes,
     ] = await Promise.all([
-      db.getDirtyBudgets(), db.getDirtyCategories(), db.getDirtyEntries(),
+      db.getDirtyBudgets(), db.getDirtyCategories(),
       db.getDirtyEvents(), db.getDirtyOverrides(), db.getDirtyTransactions(),
       db.getDirtyPeople(), db.getDirtyPersonNotes(),
       db.getDirtyMoneyPlans(), db.getDirtyMoneyRules(), db.getDirtyDayNotes(),
@@ -54,7 +54,6 @@ export async function sync() {
       lastSyncAt,
       budgets: dirtyBudgets.map(db.cleanRecord),
       categories: dirtyCategories.map(db.cleanRecord),
-      entries: dirtyEntries.map(db.cleanRecord),
       events: dirtyEvents.map(db.cleanRecord),
       periodOverrides: dirtyOverrides.map(db.cleanRecord),
       transactions: dirtyTransactions.map(db.cleanRecord),
@@ -75,7 +74,6 @@ export async function sync() {
     let changed = 0;
     for (const r of result.budgets || []) changed += await db.putBudgetClean(r) ? 1 : 0;
     for (const r of result.categories || []) changed += await db.putCategoryClean(r) ? 1 : 0;
-    for (const r of result.entries || []) changed += await db.putEntryClean(r) ? 1 : 0;
     for (const r of result.events || []) changed += await db.putEventClean(r) ? 1 : 0;
     for (const r of result.periodOverrides || []) changed += await db.putOverrideClean(r) ? 1 : 0;
     for (const r of result.transactions || []) changed += await db.putTransactionClean(r) ? 1 : 0;

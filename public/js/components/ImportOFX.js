@@ -97,12 +97,9 @@ export function ImportOFX({ budgetId }) {
       }));
 
       if (records.length > 0) {
-        // Save to server via batch endpoint
-        await api.batchCreateTransactions(budgetId, records);
-
-        // Also save to local IndexedDB for offline access
+        // Write locally (dirty); sync pushes them to the server.
         for (const r of records) {
-          await db.putTransactionClean(r);
+          await db.putTransaction(r);
         }
         syncAfterMutation();
       }

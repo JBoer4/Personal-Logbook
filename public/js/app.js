@@ -81,55 +81,47 @@ function App() {
     return () => { clearInterval(ageTimer); unsub(); };
   }, []);
 
-  // Route matching
+  // Route matching. backTo = where ← navigates (null on the dashboard = no button).
   let params;
   let view;
+  let backTo = null;
 
   if ((params = match('/budget/:id/person/:personId'))) {
     view = html`<${PersonDetail} budgetId=${params.id} personId=${params.personId} />`;
+    backTo = '/budget/' + params.id;
   } else if ((params = match('/budget/:id/log/:date'))) {
     view = html`<${DailyLog} budgetId=${params.id} date=${params.date} />`;
+    backTo = '/budget/' + params.id;
   } else if ((params = match('/budget/:id/log'))) {
     view = html`<${DailyLog} budgetId=${params.id} />`;
+    backTo = '/budget/' + params.id;
   } else if ((params = match('/budget/:id/categories'))) {
     view = html`<${BudgetRouter} budgetId=${params.id} view="categories" />`;
+    backTo = '/budget/' + params.id;
   } else if ((params = match('/budget/:id/history'))) {
     view = html`<${History} budgetId=${params.id} />`;
+    backTo = '/budget/' + params.id;
   } else if ((params = match('/budget/:id/plan'))) {
     view = html`<${BudgetRouter} budgetId=${params.id} view="plan" />`;
+    backTo = '/budget/' + params.id;
   } else if ((params = match('/budget/:id/transactions'))) {
     view = html`<${BudgetRouter} budgetId=${params.id} view="transactions" />`;
+    backTo = '/budget/' + params.id;
   } else if ((params = match('/budget/:id/import'))) {
     view = html`<${BudgetRouter} budgetId=${params.id} view="import" />`;
+    backTo = '/budget/' + params.id;
   } else if ((params = match('/budget/:id'))) {
     view = html`<${BudgetRouter} budgetId=${params.id} view="home" />`;
+    backTo = '/';
   } else {
     view = html`<${Dashboard} />`;
   }
 
-  const isHome = !match('/budget/:id') && !match('/budget/:id/log') &&
-    !match('/budget/:id/log/:date') && !match('/budget/:id/categories') &&
-    !match('/budget/:id/history') && !match('/budget/:id/transactions') &&
-    !match('/budget/:id/import') && !match('/budget/:id/plan') &&
-    !match('/budget/:id/person/:personId');
-
-  // Extract budgetId for back navigation
-  const budgetMatch = match('/budget/:id/log') || match('/budget/:id/log/:date') ||
-    match('/budget/:id/categories') || match('/budget/:id/history') ||
-    match('/budget/:id/transactions') || match('/budget/:id/import') ||
-    match('/budget/:id/plan') || match('/budget/:id/person/:personId');
-
   return html`
     <div class="app-shell">
       <header class="app-header">
-        ${!isHome && html`
-          <button class="back-btn" onClick=${() => {
-            if (budgetMatch) {
-              navigate('/budget/' + budgetMatch.id);
-            } else {
-              navigate('/');
-            }
-          }}>←</button>
+        ${backTo && html`
+          <button class="back-btn" onClick=${() => navigate(backTo)}>←</button>
         `}
         <div class="header-spacer"></div>
         ${(() => {

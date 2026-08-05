@@ -211,11 +211,9 @@ export function BudgetHome({ budgetId }) {
   async function deleteBudget() {
     const ts = now();
     const cats = await db.getCategories(budgetId);
-    const ents = await db.getEntries(budgetId);
     const evts = await db.getEvents(budgetId);
     const ovrs = await db.getOverrides(budgetId);
     for (const e of evts) await db.deleteEvent(e.id, ts);
-    for (const e of ents) await db.deleteEntry(e.id, ts);
     for (const o of ovrs) await db.deleteOverride(o.id, ts);
     for (const c of cats) await db.deleteCategory(c.id, ts);
     await db.deleteBudget(budgetId, ts);
