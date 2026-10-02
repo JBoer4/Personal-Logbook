@@ -154,6 +154,10 @@ export const db = {
 
   // Categories
   getCategories: (budgetId) => getAllByIndex('categories', 'budgetId', budgetId),
+  // Includes soft-deleted rows: category identities outlive their membership in
+  // any month, so closed months can still resolve names and colors.
+  getCategoriesAll: async (budgetId) =>
+    (await getAllRaw('categories')).filter(c => c.budgetId === budgetId),
   putCategory: (record) => put('categories', record),
   putCategoryClean: (record) => putClean('categories', record),
   deleteCategory: (id, ts) => softDelete('categories', id, ts),

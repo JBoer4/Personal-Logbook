@@ -1,4 +1,4 @@
-const CACHE_NAME = 'budget-app-v21';
+const CACHE_NAME = 'budget-app-v24';
 const ASSETS = [
   '/',
   '/index.html',
@@ -30,7 +30,6 @@ const ASSETS = [
   '/js/components/Categories.js',
   '/js/components/History.js',
   '/js/components/MoneyHome.js',
-  '/js/components/MoneyCategories.js',
   '/js/components/MoneyPlan.js',
   '/js/components/Transactions.js',
   '/js/components/ImportOFX.js',

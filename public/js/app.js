@@ -1,7 +1,7 @@
 import { render } from 'preact';
 import { useState, useEffect } from 'preact/hooks';
 import { html } from 'htm/preact';
-import { useRoute, navigate } from './router.js';
+import { useRoute, navigate, monthQuery, urlMonthOffset } from './router.js';
 import { startSyncLoop, onSyncStatus } from './sync.js';
 import { db } from './db.js';
 import { formatAge } from './utils.js';
@@ -11,7 +11,6 @@ import { DailyLog } from './components/DailyLog.js';
 import { Categories } from './components/Categories.js';
 import { History } from './components/History.js';
 import { MoneyHome } from './components/MoneyHome.js';
-import { MoneyCategories } from './components/MoneyCategories.js';
 import { MoneyPlan } from './components/MoneyPlan.js';
 import { Transactions } from './components/Transactions.js';
 import { ImportOFX } from './components/ImportOFX.js';
@@ -41,8 +40,9 @@ function BudgetRouter({ budgetId, view: viewName }) {
       : html`<${BudgetHome} budgetId=${budgetId} />`;
   }
   if (viewName === 'categories') {
+    // Money budgets keep their categories in the monthly plan, not a global list.
     return isMoney
-      ? html`<${MoneyCategories} budgetId=${budgetId} />`
+      ? html`<div class="empty-state">Categories live in the Plan for each month</div>`
       : html`<${Categories} budgetId=${budgetId} />`;
   }
   if (viewName === 'plan') {
@@ -103,13 +103,13 @@ function App() {
     backTo = '/budget/' + params.id;
   } else if ((params = match('/budget/:id/plan'))) {
     view = html`<${BudgetRouter} budgetId=${params.id} view="plan" />`;
-    backTo = '/budget/' + params.id;
+    backTo = '/budget/' + params.id + monthQuery(urlMonthOffset());
   } else if ((params = match('/budget/:id/transactions'))) {
     view = html`<${BudgetRouter} budgetId=${params.id} view="transactions" />`;
-    backTo = '/budget/' + params.id;
+    backTo = '/budget/' + params.id + monthQuery(urlMonthOffset());
   } else if ((params = match('/budget/:id/import'))) {
     view = html`<${BudgetRouter} budgetId=${params.id} view="import" />`;
-    backTo = '/budget/' + params.id;
+    backTo = '/budget/' + params.id + monthQuery(urlMonthOffset());
   } else if ((params = match('/budget/:id'))) {
     view = html`<${BudgetRouter} budgetId=${params.id} view="home" />`;
     backTo = '/';

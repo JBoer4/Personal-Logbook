@@ -169,8 +169,13 @@ export function DailyLog({ budgetId, date: dateProp }) {
       return;
     }
 
-    const startAt = form.startTime ? `${currentDate}T${form.startTime}` : null;
-    const endAt = startAt ? buildEndAt(currentDate, form.startTime, form.endTime) : null;
+    const existing = form.id ? events.find(e => e.id === form.id) : null;
+    // Anchor to the event's owning day, not the screen's date — otherwise editing
+    // a cross-midnight event from the next day's screen re-homes it there.
+    const anchorDate = existing ? existing.date : currentDate;
+
+    const startAt = form.startTime ? `${anchorDate}T${form.startTime}` : null;
+    const endAt = startAt ? buildEndAt(anchorDate, form.startTime, form.endTime) : null;
 
     let hours = null;
     if (startAt && endAt) {
@@ -180,11 +185,10 @@ export function DailyLog({ budgetId, date: dateProp }) {
     }
 
     const ts = now();
-    const existing = form.id ? events.find(e => e.id === form.id) : null;
     const event = {
       id: form.id || uuid(),
       budgetId,
-      date: currentDate,
+      date: anchorDate,
       startAt,
       endAt,
       hours,
@@ -209,7 +213,7 @@ export function DailyLog({ budgetId, date: dateProp }) {
     if (!event) return;
     const endTime = nowHHMM();
     const startTime = event.startAt ? event.startAt.slice(11, 16) : '';
-    const endAt = buildEndAt(currentDate, startTime, endTime);
+    const endAt = buildEndAt(event.date, startTime, endTime);
     const hours = calcHoursFromDatetimes(event.startAt, endAt);
     const updated = { ...event, endAt, hours, updatedAt: now() };
     await db.putEvent(updated);

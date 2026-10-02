@@ -1,18 +1,22 @@
 import { useState, useEffect } from 'preact/hooks';
 import { html } from 'htm/preact';
 import { db } from '../db.js';
-import { navigate } from '../router.js';
+import { navigate, monthQuery, urlMonthOffset } from '../router.js';
 import { syncAfterMutation, debouncedSync, useSyncRefresh } from '../sync.js';
 import {
   uuid, now, today, getMonthLabel, getMonthDates, offsetMonthDate, formatCurrency,
-  TRN_TRANSFER, isTransferTxn, isAdjustmentTxn, isRealTxn,
+  TRN_TRANSFER, isTransferTxn, isAdjustmentTxn, isRealTxn, applyRules,
+  fundBalances, monthMembers,
 } from '../utils.js';
 
 export function Transactions({ budgetId }) {
   const [transactions, setTransactions] = useState([]);
-  const [categories, setCategories] = useState([]);
+  const [registry, setRegistry] = useState([]); // every identity, retired ones included
+  const [categories, setCategories] = useState([]); // live identities
+  const [allTxns, setAllTxns] = useState([]);
+  const [plans, setPlans] = useState([]);
   const [rules, setRules] = useState([]);
-  const [monthOffset, setMonthOffset] = useState(0);
+  const [monthOffset, setMonthOffset] = useState(urlMonthOffset);
   const [filter, setFilter] = useState('all'); // 'all', 'uncategorized', or a categoryId
   const [loading, setLoading] = useState(true);
   const [showAddForm, setShowAddForm] = useState(false);
@@ -31,14 +35,18 @@ export function Transactions({ budgetId }) {
   const monthLabel = getMonthLabel(monthDate);
 
   async function load() {
-    const cats = await db.getCategories(budgetId);
+    const cats = await db.getCategoriesAll(budgetId);
     cats.sort((a, b) => a.sortOrder - b.sortOrder);
-    setCategories(cats);
+    setRegistry(cats);
+    setCategories(cats.filter(c => !c.deleted));
 
-    const allTxns = await db.getTransactions(budgetId);
-    const monthTxns = allTxns.filter(t => t.date >= monthStart && t.date <= monthEnd);
+    const txns = await db.getTransactions(budgetId);
+    setAllTxns(txns);
+    const monthTxns = txns.filter(t => t.date >= monthStart && t.date <= monthEnd);
     monthTxns.sort((a, b) => b.date.localeCompare(a.date) || b.createdAt - a.createdAt);
     setTransactions(monthTxns);
+
+    setPlans(await db.getMoneyPlans(budgetId));
 
     const moneyRules = await db.getMoneyRules(budgetId);
     moneyRules.sort((a, b) => a.createdAt - b.createdAt);
@@ -126,6 +134,30 @@ export function Transactions({ budgetId }) {
     syncAfterMutation();
   }
 
+  // Re-run every rule over transactions already in the budget (all months, not
+  // just the visible one). Hand-categorized rows are left alone so a rule can
+  // never stomp manual work.
+  async function applyRulesToExisting() {
+    const all = await db.getTransactions(budgetId);
+    const ts = now();
+    const changed = [];
+    for (const t of all) {
+      if (t.categoryId && !t.ruleId) continue;
+      const next = applyRules(t, rules);
+      if (next === t) continue;
+      if (next.categoryId === t.categoryId && next.trntype === t.trntype && next.ruleId === t.ruleId) continue;
+      changed.push({ ...next, updatedAt: ts });
+    }
+    if (changed.length === 0) {
+      alert('No transactions changed — rules either match nothing or are already applied.');
+      return;
+    }
+    if (!confirm(`Apply rules to ${changed.length} transaction${changed.length === 1 ? '' : 's'}?`)) return;
+    for (const t of changed) await db.putTransaction(t);
+    syncAfterMutation();
+    load();
+  }
+
   async function deleteRule(ruleId) {
     await db.deleteMoneyRule(ruleId, now());
     setRules(prev => prev.filter(r => r.id !== ruleId));
@@ -148,8 +180,14 @@ export function Transactions({ budgetId }) {
   const totalIncome = summaryTxns.filter(t => t.amount > 0).reduce((s, t) => s + t.amount, 0);
   const uncatCount = transactions.filter(t => !t.categoryId).length;
 
+  // Names come from the registry so a retired category still labels its old rows;
+  // the pickers offer only this month's categories, never the whole history.
   const catMap = {};
-  for (const c of categories) catMap[c.id] = c;
+  for (const c of registry) catMap[c.id] = c;
+  const balances = fundBalances(categories, plans, allTxns, monthStart);
+  const monthPlans = plans.filter(p => p.monthStart === monthStart);
+  const members = monthMembers(categories, monthPlans, transactions, balances);
+  const pickable = categories.filter(c => members.has(c.id));
 
   return html`
     <div class="transactions-view">
@@ -168,7 +206,7 @@ export function Transactions({ budgetId }) {
       </div>
 
       <div class="txn-actions">
-        <button class="btn" onClick=${() => navigate('/budget/' + budgetId + '/import')}>Import OFX</button>
+        <button class="btn" onClick=${() => navigate('/budget/' + budgetId + '/import' + monthQuery(monthOffset))}>Import OFX</button>
         <button class="btn btn-secondary" onClick=${() => setShowAddForm(v => !v)}>
           ${showAddForm ? 'Cancel' : '+ Manual'}
         </button>
@@ -189,7 +227,7 @@ export function Transactions({ budgetId }) {
             <select class="txn-cat-select txn-add-cat" value=${addCategory}
               onChange=${(e) => setAddCategory(e.target.value)}>
               <option value="">Uncategorized</option>
-              ${categories.map(c => html`<option key=${c.id} value=${c.id}>${c.name}</option>`)}
+              ${pickable.map(c => html`<option key=${c.id} value=${c.id}>${c.name}</option>`)}
             </select>
             <button class="btn txn-add-save" onClick=${addTransaction}>Add</button>
           </div>
@@ -219,6 +257,11 @@ export function Transactions({ budgetId }) {
               <button class="btn btn-secondary rule-add-btn" onClick=${() => openRuleForm()}>
                 + Add rule
               </button>
+              ${rules.length > 0 && html`
+                <button class="btn btn-secondary rule-apply-btn" onClick=${applyRulesToExisting}>
+                  Apply rules to existing
+                </button>
+              `}
             ` : html`
               <div class="rule-add-form">
                 <input class="txn-add-input" type="text" placeholder="Match text (e.g. ALBERT HEIJN)"
@@ -226,7 +269,7 @@ export function Transactions({ budgetId }) {
                 <div class="txn-add-row">
                   <select class="txn-cat-select" value=${ruleCategory} onChange=${(e) => setRuleCategory(e.target.value)}>
                     <option value="">— none —</option>
-                    ${categories.map(c => html`<option key=${c.id} value=${c.id}>${c.name}</option>`)}
+                    ${pickable.map(c => html`<option key=${c.id} value=${c.id}>${c.name}</option>`)}
                   </select>
                 </div>
                 <label class="rule-transfer-check">
@@ -249,7 +292,7 @@ export function Transactions({ budgetId }) {
           onClick=${() => setFilter('all')}>All (${transactions.length})</button>
         <button class="txn-filter ${filter === 'uncategorized' ? 'active' : ''}"
           onClick=${() => setFilter('uncategorized')}>Uncat (${uncatCount})</button>
-        ${categories.map(c => html`
+        ${pickable.map(c => html`
           <button class="txn-filter ${filter === c.id ? 'active' : ''}" key=${c.id}
             onClick=${() => setFilter(c.id)}>
             <span class="txn-filter-dot" style=${{ background: c.color }}></span>
@@ -261,7 +304,7 @@ export function Transactions({ budgetId }) {
       ${filtered.length === 0 && html`
         <div class="empty-state">
           ${transactions.length === 0
-            ? html`<p>No transactions yet</p><button class="btn" onClick=${() => navigate('/budget/' + budgetId + '/import')}>Import OFX</button>`
+            ? html`<p>No transactions yet</p><button class="btn" onClick=${() => navigate('/budget/' + budgetId + '/import' + monthQuery(monthOffset))}>Import OFX</button>`
             : html`<p>No transactions match this filter</p>`
           }
         </div>
@@ -289,7 +332,7 @@ export function Transactions({ budgetId }) {
                 <select class="txn-cat-select" value=${txn.categoryId || ''}
                   onChange=${(e) => setCategoryForTxn(txn.id, e.target.value)}>
                   <option value="">Uncategorized</option>
-                  ${categories.map(c => html`
+                  ${pickable.map(c => html`
                     <option key=${c.id} value=${c.id}>${c.name}</option>
                   `)}
                 </select>

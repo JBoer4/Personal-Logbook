@@ -1,21 +1,23 @@
 import { useState, useEffect, useRef } from 'preact/hooks';
 import { html } from 'htm/preact';
 import { db } from '../db.js';
-import { navigate } from '../router.js';
+import { navigate, monthQuery, urlMonthOffset } from '../router.js';
 import { syncAfterMutation, useSyncRefresh } from '../sync.js';
 import {
   uuid, now, today, getMonthDates, getMonthLabel, offsetMonthDate, formatCurrency,
   buildCategoryTree, flattenCategoryTree, rollUpToParents,
   TRN_TRANSFER, TRN_ADJUSTMENT, isTransferTxn, isRealTxn, isFund, isEarmarkedFund, computePlanned,
+  fundBalances, monthMembers,
 } from '../utils.js';
 
 export function MoneyHome({ budgetId }) {
   const [budget, setBudget] = useState(null);
-  const [categories, setCategories] = useState([]);
+  const [registry, setRegistry] = useState([]); // every identity, retired ones included
+  const [categories, setCategories] = useState([]); // live identities
   const [allTransactions, setAllTransactions] = useState([]);
   const [transactions, setTransactions] = useState([]);
   const [allPlans, setAllPlans] = useState([]);
-  const [monthOffset, setMonthOffset] = useState(0);
+  const [monthOffset, setMonthOffset] = useState(urlMonthOffset);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -36,9 +38,10 @@ export function MoneyHome({ budgetId }) {
     const b = await db.getBudget(budgetId);
     setBudget(b);
 
-    const cats = await db.getCategories(budgetId);
+    const cats = await db.getCategoriesAll(budgetId);
     cats.sort((a, b) => a.sortOrder - b.sortOrder);
-    setCategories(cats);
+    setRegistry(cats);
+    setCategories(cats.filter(c => !c.deleted));
 
     const allTxns = await db.getTransactions(budgetId);
     setAllTransactions(allTxns);
@@ -128,9 +131,9 @@ export function MoneyHome({ budgetId }) {
 
   if (loading) return html`<div class="loading">Loading...</div>`;
 
-  const catById = Object.fromEntries(categories.map(c => [c.id, c]));
-  const tree = buildCategoryTree(categories);
-  const flat = flattenCategoryTree(tree);
+  // Labels resolve from the registry: a category retired from every plan still
+  // has to render its name and color in the months that did use it.
+  const catById = Object.fromEntries(registry.map(c => [c.id, c]));
 
   // Transaction buckets for this month.
   const monthTransfers = transactions.filter(isTransferTxn);
@@ -141,6 +144,13 @@ export function MoneyHome({ budgetId }) {
   const hasPlan = monthPlans.length > 0;
   const planByCat = Object.fromEntries(monthPlans.map(p => [p.categoryId, p]));
 
+  // The plan is the membership list, so the rows this month shows are derived,
+  // not stored. Fund balances come first because a fund still holding money
+  // belongs in the month whether or not this plan names it.
+  const balances = fundBalances(categories, allPlans, allTransactions, monthStart);
+  const members = monthMembers(categories, monthPlans, transactions, balances);
+  const flat = flattenCategoryTree(buildCategoryTree(categories.filter(c => members.has(c.id))));
+
   // Headline figures
   const income = monthReal.reduce((s, t) => t.amount > 0 ? s + t.amount : s, 0);
   const planned = computePlanned(monthPlans, catById);
@@ -149,7 +159,7 @@ export function MoneyHome({ budgetId }) {
   // Spending per category — real negative transactions, with parent rollup
   const direct = {};
   let uncategorizedSpending = 0;
-  for (const cat of categories) direct[cat.id] = 0;
+  for (const { cat } of flat) direct[cat.id] = 0;
   for (const t of monthReal) {
     if (t.amount >= 0) continue;
     const amt = Math.abs(t.amount);
@@ -170,27 +180,15 @@ export function MoneyHome({ budgetId }) {
     return p && (p.minAmount != null || p.maxAmount != null);
   });
 
-  // Funds are timeless: balance = all plan contributions up to and including the
-  // shown month + every transaction ever categorized to the fund (signed, all
-  // types — expenses, refunds, transfer legs, and balance adjustments).
   const fundList = flat.filter(({ cat }) => isFund(cat));
-  const fundBalances = {};
   const fundMonthActivity = {};
-  for (const { cat } of fundList) { fundBalances[cat.id] = 0; fundMonthActivity[cat.id] = 0; }
-  for (const p of allPlans) {
-    if (fundBalances[p.categoryId] !== undefined && p.monthStart <= monthStart) {
-      fundBalances[p.categoryId] += p.contribution || 0;
-    }
-  }
-  for (const t of allTransactions) {
-    if (fundBalances[t.categoryId] !== undefined) fundBalances[t.categoryId] += t.amount;
-  }
+  for (const { cat } of fundList) fundMonthActivity[cat.id] = 0;
   for (const t of transactions) {
     if (fundMonthActivity[t.categoryId] !== undefined) fundMonthActivity[t.categoryId] += t.amount;
   }
   const checkingFloor = fundList
     .filter(({ cat }) => isEarmarkedFund(cat))
-    .reduce((s, { cat }) => s + (fundBalances[cat.id] || 0), 0);
+    .reduce((s, { cat }) => s + (balances[cat.id] || 0), 0);
 
   // Pipeline: uncategorized real transactions this month
   const uncatCount = monthReal.filter(t => !t.categoryId).length;
@@ -251,29 +249,29 @@ export function MoneyHome({ budgetId }) {
       ${isEmpty && html`
         <div class="empty-state">
           <p>No transactions or plan for this month</p>
-          <button class="btn" onClick=${() => navigate('/budget/' + budgetId + '/import')}>Import OFX File</button>
-          <button class="btn btn-secondary" onClick=${() => navigate('/budget/' + budgetId + '/plan')}>Set Up Plan</button>
+          <button class="btn" onClick=${() => navigate('/budget/' + budgetId + '/import' + monthQuery(monthOffset))}>Import OFX File</button>
+          <button class="btn btn-secondary" onClick=${() => navigate('/budget/' + budgetId + '/plan' + monthQuery(monthOffset))}>Set Up Plan</button>
         </div>
       `}
 
       ${!isEmpty && html`
         <div class="pipeline-strip">
           ${transactions.length === 0 ? html`
-            <button class="pipeline-todo" onClick=${() => navigate('/budget/' + budgetId + '/import')}>
+            <button class="pipeline-todo" onClick=${() => navigate('/budget/' + budgetId + '/import' + monthQuery(monthOffset))}>
               No transactions — import
             </button>
           ` : html`
             <span class="pipeline-done">Imported ✓</span>
           `}
           ${hasPlan ? html`
-            <button class="pipeline-done" onClick=${() => navigate('/budget/' + budgetId + '/plan')}>Plan ✓</button>
+            <button class="pipeline-done" onClick=${() => navigate('/budget/' + budgetId + '/plan' + monthQuery(monthOffset))}>Plan ✓</button>
           ` : html`
-            <button class="pipeline-todo" onClick=${() => navigate('/budget/' + budgetId + '/plan')}>
+            <button class="pipeline-todo" onClick=${() => navigate('/budget/' + budgetId + '/plan' + monthQuery(monthOffset))}>
               No plan for ${monthLabel} — set one up
             </button>
           `}
           ${monthReal.length > 0 && (uncatCount > 0 ? html`
-            <button class="pipeline-todo" onClick=${() => navigate('/budget/' + budgetId + '/transactions')}>
+            <button class="pipeline-todo" onClick=${() => navigate('/budget/' + budgetId + '/transactions' + monthQuery(monthOffset))}>
               ${uncatCount} uncategorized
             </button>
           ` : html`
@@ -343,7 +341,7 @@ export function MoneyHome({ budgetId }) {
           <div class="funds-section">
             <h3>Funds</h3>
             ${fundList.map(({ cat }) => {
-              const bal = fundBalances[cat.id] || 0;
+              const bal = balances[cat.id] || 0;
               const goal = cat.goalBalance;
               const contrib = planByCat[cat.id]?.contribution;
               const monthActivity = fundMonthActivity[cat.id] || 0;
@@ -444,10 +442,9 @@ export function MoneyHome({ budgetId }) {
       `}
 
       <div class="budget-actions">
-        <button class="btn" onClick=${() => navigate('/budget/' + budgetId + '/import')}>Import</button>
-        <button class="btn btn-secondary" onClick=${() => navigate('/budget/' + budgetId + '/transactions')}>Transactions</button>
-        <button class="btn btn-secondary" onClick=${() => navigate('/budget/' + budgetId + '/categories')}>Categories</button>
-        <button class="btn btn-secondary" onClick=${() => navigate('/budget/' + budgetId + '/plan')}>Plan</button>
+        <button class="btn" onClick=${() => navigate('/budget/' + budgetId + '/import' + monthQuery(monthOffset))}>Import</button>
+        <button class="btn btn-secondary" onClick=${() => navigate('/budget/' + budgetId + '/transactions' + monthQuery(monthOffset))}>Transactions</button>
+        <button class="btn btn-secondary" onClick=${() => navigate('/budget/' + budgetId + '/plan' + monthQuery(monthOffset))}>Plan</button>
         <button class="btn btn-secondary" onClick=${() => setShowTransfer(v => !v)}>Transfer</button>
       </div>
 

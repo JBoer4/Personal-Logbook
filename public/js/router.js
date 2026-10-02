@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'preact/hooks';
 
 function parseHash() {
-  const hash = location.hash.slice(1) || '/';
-  return hash;
+  // The query string (e.g. ?m=-1) is view state, not part of the route.
+  return (location.hash.slice(1) || '/').split('?')[0];
 }
 
 // Match route pattern like /budget/:id/log/:date against a path
@@ -42,3 +42,12 @@ export function navigate(path) {
   location.hash = path;
 }
 
+// Month offset carried across money screens in the URL (?m=-1). Absent = current month.
+export function monthQuery(offset) {
+  return offset ? '?m=' + offset : '';
+}
+
+export function urlMonthOffset() {
+  const query = location.hash.split('?')[1];
+  return Number(new URLSearchParams(query).get('m')) || 0;
+}

@@ -1,10 +1,10 @@
 import { useState, useRef } from 'preact/hooks';
 import { html } from 'htm/preact';
 import { db } from '../db.js';
-import { navigate } from '../router.js';
+import { navigate, monthQuery, urlMonthOffset } from '../router.js';
 import { syncAfterMutation } from '../sync.js';
 import { api } from '../api.js';
-import { uuid, now, formatCurrency, TRN_TRANSFER, isTransferTxn } from '../utils.js';
+import { uuid, now, formatCurrency, applyRules, isTransferTxn } from '../utils.js';
 
 export function ImportOFX({ budgetId }) {
   const [parsed, setParsed] = useState(null);
@@ -28,24 +28,14 @@ export function ImportOFX({ budgetId }) {
         return;
       }
 
-      const cats = await db.getCategories(budgetId);
+      const cats = await db.getCategoriesAll(budgetId);
       setCategories(cats);
 
       // Apply categorization rules client-side (first match wins, oldest rule first).
-      // Rules only ever apply at import time — never retro-applied.
+      // Rules also re-runnable after the fact from the Transactions rules panel.
       const rules = await db.getMoneyRules(budgetId);
       rules.sort((a, b) => a.createdAt - b.createdAt);
-      const withRules = transactions.map(t => {
-        const haystack = `${t.payee || ''} ${t.memo || ''}`.toLowerCase();
-        const rule = rules.find(r => r.match && haystack.includes(r.match.toLowerCase()));
-        if (!rule) return t;
-        return {
-          ...t,
-          categoryId: rule.categoryId || null,
-          ruleId: rule.id,
-          trntype: rule.markTransfer ? TRN_TRANSFER : t.trntype,
-        };
-      });
+      const withRules = transactions.map(t => applyRules(t, rules));
 
       setParsed(withRules);
     } catch (err) {
@@ -120,7 +110,7 @@ export function ImportOFX({ budgetId }) {
         <div class="import-result">
           <p>${result.count} transactions imported${result.skipped > 0 ? `, ${result.skipped} skipped (already imported)` : ''}</p>
           ${result.ruleCount > 0 && html`<p class="import-result-rules">${result.ruleCount} auto-categorized by rules</p>`}
-          <button class="btn" onClick=${() => navigate('/budget/' + budgetId + '/transactions')}>
+          <button class="btn" onClick=${() => navigate('/budget/' + budgetId + '/transactions' + monthQuery(urlMonthOffset()))}>
             View Transactions
           </button>
           <button class="btn btn-secondary" onClick=${() => { setResult(null); setParsed(null); if (fileRef.current) fileRef.current.value = ''; }}>

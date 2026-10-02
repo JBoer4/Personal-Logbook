@@ -170,3 +170,34 @@ rather than assuming the ritual is done.
   is that a later reporting layer? → later reporting layer.
 - Auto-suggestion for CC payoff detection (payee/amount match) — v1 ships a manual
   "mark as transfer" toggle plus rules with `markTransfer`; smarter suggestion later.
+
+## Plan-as-membership (2026-09-10)
+
+Category existence moved into the plan layer. The v1 model kept a global category
+list whose deletes reached backwards: `getCategories()` filters soft-deleted rows,
+`catById` was built from it, so retiring a category stripped the labels off months
+that were already closed and dumped their spend into "Uncategorized".
+
+The model now separates the two ideas the old screen conflated:
+
+- **Category = identity.** A label with a color, nature, goal and location that
+  outlives any month. Stored forever, never browsed as a list.
+- **Plan row = membership.** A category is in a month when that month's plan names
+  it, when a transaction that month is tagged to it, or when it is a fund still
+  holding money. `monthMembers()` derives it; nothing is stored.
+
+Consequences:
+
+- `MoneyCategories.js` is gone, and `/budget/:id/categories` no longer routes for
+  money budgets. `MoneyPlan` is the only place categories are seen or edited.
+- Retiring = dropping the plan row (x). Deleting a category is reserved for
+  never-used mistakes; a purged identity resolves nothing and never returns.
+- Reviving is a name match in the add field (native `<datalist>` typeahead over
+  dormant identities), so a category dropped in March and wanted in June keeps its
+  id, its history and its fund balance.
+- Copy-from-previous-month is how a month gets its category list.
+- Display paths (`MoneyHome`, `Transactions`, `ImportOFX`) resolve labels through
+  `db.getCategoriesAll()`; pickers and editors offer only the month's members.
+
+Zero schema change: plan rows already carried per-month membership, the UI just
+did not respect it.

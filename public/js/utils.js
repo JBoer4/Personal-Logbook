@@ -226,6 +226,22 @@ export function isTransferTxn(t) { return t.trntype === TRN_TRANSFER; }
 export function isAdjustmentTxn(t) { return t.trntype === TRN_ADJUSTMENT; }
 export function isRealTxn(t) { return !isTransferTxn(t) && !isAdjustmentTxn(t); }
 
+// Apply categorization rules to one transaction: first match wins, so `rules`
+// must already be sorted oldest-first. Returns the transaction unchanged when
+// nothing matches. Shared by OFX import and "apply rules to existing" so the
+// two can never drift apart.
+export function applyRules(txn, rules) {
+  const haystack = `${txn.payee || ''} ${txn.memo || ''}`.toLowerCase();
+  const rule = rules.find(r => r.match && haystack.includes(r.match.toLowerCase()));
+  if (!rule) return txn;
+  return {
+    ...txn,
+    categoryId: rule.categoryId || null,
+    ruleId: rule.id,
+    trntype: rule.markTransfer ? TRN_TRANSFER : txn.trntype,
+  };
+}
+
 // Category natures: unset defaults to 'flow'.
 export function isFund(cat) { return cat.nature === 'fund'; }
 
@@ -356,4 +372,51 @@ export function computeHoursByCat(events, dates, categories) {
     }
   }
   return rollUpToParents(direct, catById);
+}
+
+// --- Money: plan-as-membership ---
+//
+// The plan IS the category list for a month. A category row in the DB is only an
+// identity (label, color, nature, goal) that outlives any month; what makes it
+// part of a month is a plan row, a transaction that month, or — for funds — still
+// holding money. Retiring a category means dropping its plan row, never deleting
+// the identity, so closed months keep rendering their own labels.
+
+// Running fund balance. Plan contributions count up to and including
+// `throughMonth`; transactions count in full (signed — expenses, refunds,
+// transfer legs and manual adjustments), because a fund's balance is a running
+// total rather than a per-month figure.
+export function fundBalances(categories, plans, transactions, throughMonth) {
+  const bal = {};
+  for (const c of categories) if (isFund(c)) bal[c.id] = 0;
+  for (const p of plans) {
+    if (bal[p.categoryId] !== undefined && p.monthStart <= throughMonth) {
+      bal[p.categoryId] += p.contribution || 0;
+    }
+  }
+  for (const t of transactions) {
+    if (bal[t.categoryId] !== undefined) bal[t.categoryId] += t.amount;
+  }
+  return bal;
+}
+
+// Which categories belong to a month's view. Ancestors of members join them so
+// the tree can nest a live child under a parent that has no plan row of its own.
+// `categories` is the live set: an id with no live row is purged, so it still
+// resolves a label for old transactions but is never a member again.
+export function monthMembers(categories, monthPlans, monthTxns = [], balances = {}) {
+  const byId = Object.fromEntries(categories.map(c => [c.id, c]));
+  const ids = new Set();
+  for (const p of monthPlans) ids.add(p.categoryId);
+  for (const t of monthTxns) if (t.categoryId) ids.add(t.categoryId);
+  for (const [id, bal] of Object.entries(balances)) if (bal !== 0) ids.add(id);
+  for (const id of [...ids]) {
+    if (!byId[id]) { ids.delete(id); continue; }
+    let cat = byId[id];
+    while (cat.parentId && byId[cat.parentId]) {
+      ids.add(cat.parentId);
+      cat = byId[cat.parentId];
+    }
+  }
+  return ids;
 }
